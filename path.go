@@ -48,6 +48,15 @@ func (p P) Parent() P {
 	return p[:len(p)-1]
 }
 
+//Base returns the base component of a path
+func (p P) Base() string {
+	if len(p) < 1 {
+		return PathSeparator
+	}
+
+	return p[len(p)-1]
+}
+
 //Key returns a byte slice used for database retrieval and storage
 func (p P) Key() []byte {
 	return []byte(p.String())

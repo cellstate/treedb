@@ -50,6 +50,17 @@ func TestPathErr(t *testing.T) {
 	}
 }
 
+func TestPathBase(t *testing.T) {
+	p1 := P{"foo"}
+	if p1.Base() != "foo" {
+		t.Error("expected path base to be this")
+	}
+
+	if Root.Base() != "/" {
+		t.Error("base of the root is special")
+	}
+}
+
 func TestPathParent(t *testing.T) {
 	p := P{"foo", "bar"}
 
