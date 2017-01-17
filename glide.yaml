@@ -1,0 +1,4 @@
+package: github.com/cellstate/treedb
+import:
+  - package: github.com/boltdb/bolt
+    version: v1.3.0
