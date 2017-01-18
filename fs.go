@@ -20,9 +20,9 @@ var (
 //are public for easier JSON (un)marshalling
 type fileInfo struct {
 	N string      // base name of the file
-	S int64       // length in bytes for regular files; system-dependent for others
 	M os.FileMode // file mode bits
 	T time.Time   // modification time
+	S int64       // length in bytes for regular files; system-dependent for others
 }
 
 //Name of the file
@@ -75,7 +75,8 @@ func NewFileSystem(id string, db *bolt.DB) (fs *FileSystem, err error) {
 			if err = fs.putfi(tx, Root, &fileInfo{
 				N: Root.Base(),
 				M: os.ModeDir | 0777,
-				//@TODO setup root file info completely
+				T: time.Now(),
+				//@TODO setup size
 			}); err != nil {
 				return err
 			}
@@ -168,6 +169,7 @@ func (fs *FileSystem) Mkdir(p P, perm os.FileMode) (err error) {
 		fi = &fileInfo{
 			N: p.Base(),
 			M: os.ModeDir | perm,
+			T: time.Now(),
 			//@TODO complete information
 		}
 
@@ -186,18 +188,11 @@ func (fs *FileSystem) Mkdir(p P, perm os.FileMode) (err error) {
 	return nil
 }
 
-// Create creates the named file with mode 0666 (before umask), truncating
-// it if it already exists. If successful, methods on the returned
-// File can be used for I/O; the associated file descriptor has mode
-// O_RDWR. If there is an error, it will be of type *PathError.
-func (fs *FileSystem) Create(p P) (*File, error) {
-	return fs.OpenFile(p, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666)
-}
-
 // OpenFile is the generalized open call. It opens the named file with specified
 // flag (O_RDONLY etc.) and perm, (0666 etc.) if applicable. If successful,
 // methods on the returned File can be used for I/O. If there is an error, it will
 // be of type *PathError. Behaviour can be customized with the following flags:
+//
 //   O_RDONLY int = syscall.O_RDONLY // open the file read-only.
 //   O_WRONLY int = syscall.O_WRONLY // open the file write-only.
 //   O_RDWR   int = syscall.O_RDWR   // open the file read-write.
@@ -253,7 +248,8 @@ func (fs *FileSystem) OpenFile(p P, flag int, perm os.FileMode) (f *File, err er
 			fi = &fileInfo{
 				N: p.Base(),
 				M: perm,
-				//@TODO create valid file info
+				T: time.Now(),
+				//@TODO setup determine size
 			}
 
 			//insert it

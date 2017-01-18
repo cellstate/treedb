@@ -123,6 +123,10 @@ func CaseStatExisting(fs *FileSystem, t *testing.T) {
 	if fi.Name() != "/" {
 		t.Error("expected basename of root to be /")
 	}
+
+	if fi.ModTime().IsZero() {
+		t.Error("modtime should not be zero")
+	}
 }
 
 func CaseOpenFileInvalidPath(fs *FileSystem, t *testing.T) {
@@ -158,6 +162,10 @@ func CaseOpenFileCreateNonExisting(fs *FileSystem, t *testing.T) {
 	if fi.Mode() != 0777 {
 		t.Error("expected correct file mode to be set")
 	}
+
+	if fi.ModTime().IsZero() {
+		t.Error("mod time should not be zero")
+	}
 }
 
 func CaseMkdirNonExisting(fs *FileSystem, t *testing.T) {
@@ -173,6 +181,10 @@ func CaseMkdirNonExisting(fs *FileSystem, t *testing.T) {
 
 	if fi.Mode() != os.ModeDir|777 {
 		t.Errorf("expected mode to be set correctly, got: %v", fi.Mode())
+	}
+
+	if fi.ModTime().IsZero() {
+		t.Error("modtime should not be zero")
 	}
 
 	err = fs.Mkdir(P{"bar"}, 777)
