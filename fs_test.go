@@ -158,46 +158,28 @@ func CaseOpenFileCreateNonExisting(fs *FileSystem, t *testing.T) {
 	if fi.Mode() != 0777 {
 		t.Error("expected correct file mode to be set")
 	}
-
 }
 
-//
-//
-// func CaseCreateNonExisting(fs *FileSystem, t *testing.T) {
-// 	// f, err := fs.Create("foo.txt")
-// 	// if err != nil {
-// 	// 	t.Fatalf("expected no error, got: %v", err)
-// 	// }
-// 	//
-// 	// if f == nil {
-// 	// 	t.Fatal("expected the returned file not to be nil")
-// 	// }
-// 	//
-// 	// _, err = fs.Create("bar/foo.txt")
-// 	// if !os.IsNotExist(err) {
-// 	// 	t.Error("expected non existing file error")
-// 	// }
-// 	//
-// 	// fi, err := fs.Stat("foo.txt")
-// 	// if err != nil {
-// 	// 	t.Fatalf("didnt expect stat error, got: %v", err)
-// 	// }
-// 	//
-// 	// if fi.Name() != "foo.txt" {
-// 	// 	t.Errorf("base name of file info should be correct, got: '%v'", fi.Name())
-// 	// }
-// 	//
-// 	// if fi.Mode().IsRegular() != true {
-// 	// 	t.Error("file info mode should indicate it to be a regular file")
-// 	// }
-// }
-//
-// func CaseMkDirNonExisting(fs *FileSystem, t *testing.T) {
-// 	err := fs.Mkdir("bar")
-// 	if err != nil {
-// 		t.Fatalf("expected no error, got: %v", err)
-// 	}
-// }
+func CaseMkdirNonExisting(fs *FileSystem, t *testing.T) {
+	err := fs.Mkdir(P{"bar"}, 777)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	fi, err := fs.Stat(P{"bar"})
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	if fi.Mode() != os.ModeDir|777 {
+		t.Errorf("expected mode to be set correctly, got: %v", fi.Mode())
+	}
+
+	err = fs.Mkdir(P{"bar"}, 777)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+}
 
 func TestAtomicCases(t *testing.T) {
 	db, close := testdb(t)
@@ -213,7 +195,8 @@ func TestAtomicCases(t *testing.T) {
 
 		{Name: "CaseOpenFileInvalidPath", Case: CaseOpenFileInvalidPath},
 		{Name: "CaseOpenFileCreateNonExisting", Case: CaseOpenFileCreateNonExisting},
-		// {Name: "MkDirNoNonExisting", Case: CaseMkDirNonExisting},
+
+		{Name: "CaseMkdirNonExisting", Case: CaseMkdirNonExisting},
 	}
 
 	for _, c := range cases {

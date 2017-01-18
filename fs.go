@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/boltdb/bolt"
@@ -15,42 +14,6 @@ var (
 	//ErrNotDirectory is returned when a directory was expected
 	ErrNotDirectory = errors.New("not a directory")
 )
-
-//Parent returns one level up from path components 'p' but if there are one or
-//less components it will return the root
-func Parent(p ...string) []string {
-	if len(p) < 2 {
-		return []string{}
-	}
-
-	return p[:len(p)-1]
-}
-
-//FileKey is used by the filesystem to transform path components into a datbase key
-//if no path elements are provided it returns the root: just a single PathSeparator
-func FileKey(p ...string) ([]byte, error) {
-	n, err := FileName(p...)
-	if err != nil {
-		return nil, err
-	}
-
-	return []byte(n), nil
-}
-
-//FileName returns a full name (path) of the path components
-func FileName(p ...string) (string, error) {
-	if len(p) < 1 {
-		return "", ErrInvalidPath
-	}
-
-	for _, c := range p {
-		if strings.Contains(c, PathSeparator) {
-			return "", ErrInvalidPath
-		}
-	}
-
-	return PathSeparator + strings.Join(p, PathSeparator), nil
-}
 
 //fileInfo holds our specific file information
 //and implements the os.FileInfo interface, the fields
@@ -163,13 +126,63 @@ func (fs *FileSystem) getfi(tx *bolt.Tx, p P) (fi *fileInfo, err error) {
 
 // Mkdir creates a new directory with the specified name and permission bits. If
 // there is an error, it will be of type *PathError.
-func (fs *FileSystem) Mkdir(p P) (err error) {
-	k, err := FileKey(p...)
+func (fs *FileSystem) Mkdir(p P, perm os.FileMode) (err error) {
+	err = p.Validate()
 	if err != nil {
 		return p.Err("mkdir", err)
 	}
 
-	_ = k
+	//begin the transaction
+	tx, err := fs.db.Begin(true)
+	if err != nil {
+		return err
+	}
+
+	//always end the transaction
+	defer func() {
+		if cerr := tx.Commit(); cerr != nil {
+			err = cerr //commit errors will take precedence
+		}
+	}()
+
+	//check if parent exists
+	pp := p.Parent()
+	pfi, err := fs.getfi(tx, pp)
+	if err != nil {
+		return pp.Err("mkdir", err) //no parent or some other problem with its path
+	}
+
+	//check if its a directory
+	if !pfi.IsDir() {
+		return pp.Err("mkdir", ErrNotDirectory)
+	}
+
+	//check if the directory already exists
+	fi, err := fs.getfi(tx, p)
+	if err != nil {
+		if err != os.ErrNotExist {
+			return p.Err("mkdir", err)
+		}
+
+		//dir doesnt exist; create it
+		fi = &fileInfo{
+			N: p.Base(),
+			M: os.ModeDir | perm,
+			//@TODO complete information
+		}
+
+		//and insert the record
+		if err = fs.putfi(tx, p, fi); err != nil {
+			return p.Err("mkdir", err)
+		}
+
+	} else {
+		if !fi.IsDir() {
+			//dir exists but is not a directory
+			return p.Err("mkdir", os.ErrExist)
+		}
+	}
+
 	return nil
 }
 
@@ -228,7 +241,7 @@ func (fs *FileSystem) OpenFile(p P, flag int, perm os.FileMode) (f *File, err er
 			pp := p.Parent()
 			pfi, err := fs.getfi(tx, pp)
 			if err != nil {
-				return nil, pp.Err("open", err) //report both ErrNotExist the same here
+				return nil, pp.Err("open", err) //report both ErrNotExist and other errors the same
 			}
 
 			//make sure it is a directory
@@ -260,7 +273,9 @@ func (fs *FileSystem) OpenFile(p P, flag int, perm os.FileMode) (f *File, err er
 
 	//Setup IO to the actual file
 	//@TODO How do we represent a file handle in our system?
-	//transaction for each block? custom locking flag?
+	//transaction for each block? custom locking flag? If File
+	//IO gets another kind of lock on the db we can trim down on
+	//having a writable transaction here
 	f = &File{
 	//@TODO create io ready file
 	}
