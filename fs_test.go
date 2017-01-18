@@ -168,6 +168,70 @@ func CaseOpenFileCreateNonExisting(fs *FileSystem, t *testing.T) {
 	}
 }
 
+func CaseOpenFileParentNotDirectory(fs *FileSystem, t *testing.T) {
+	_, err := fs.OpenFile(P{"foo.txt"}, os.O_CREATE|os.O_RDWR, 0777)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	_, err = fs.OpenFile(P{"foo.txt", "foo.txt"}, os.O_CREATE|os.O_RDWR, 0777)
+	if err == nil {
+		t.Fatalf("expected error, got: %v", err)
+	}
+
+	perr := err.(*os.PathError)
+	if perr.Err != ErrNotDirectory {
+		t.Fatalf("expected ErrNotDirectory, got: %v", err)
+	}
+}
+
+func CaseOpenFileParentNotExist(fs *FileSystem, t *testing.T) {
+	_, err := fs.OpenFile(P{"bar", "foo.txt"}, os.O_CREATE|os.O_RDWR, 0777)
+	if err == nil {
+		t.Fatalf("expected error, got: %v", err)
+	}
+
+	perr := err.(*os.PathError)
+	if perr.Err != os.ErrNotExist {
+		t.Fatalf("expected ErrNotDirectory, got: %v", err)
+	}
+}
+
+func CaseOpenFileExclusive(fs *FileSystem, t *testing.T) {
+	_, err := fs.OpenFile(P{"foo.txt"}, os.O_CREATE|os.O_RDWR, 0777)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	_, err = fs.OpenFile(P{"foo.txt"}, os.O_CREATE|os.O_RDWR|os.O_EXCL, 0777)
+	if err == nil {
+		t.Fatalf("expected error, got: %v", err)
+	}
+
+	perr := err.(*os.PathError)
+	if perr.Err != os.ErrExist {
+		t.Fatalf("expected os.ErrExists, got: %v", err)
+	}
+}
+
+func CaseOpenFileNonExisting(fs *FileSystem, t *testing.T) {
+	_, err := fs.OpenFile(P{"foo.txt"}, os.O_RDWR, 0777)
+	if err == os.ErrNotExist {
+		t.Fatalf("expected os.ErrNotExist, got: %v", err)
+	}
+}
+
+func CaseMkdirInvalidPath(fs *FileSystem, t *testing.T) {
+	err := fs.Mkdir(P{"fo/o.txt"}, 0)
+	if err == nil {
+		t.Fatal("expected err")
+	}
+	perr, ok := err.(*os.PathError)
+	if !ok || perr.Err != ErrInvalidPath {
+		t.Errorf("expected invalid path err, got: %v", err)
+	}
+}
+
 func CaseMkdirNonExisting(fs *FileSystem, t *testing.T) {
 	err := fs.Mkdir(P{"bar"}, 777)
 	if err != nil {
@@ -193,6 +257,52 @@ func CaseMkdirNonExisting(fs *FileSystem, t *testing.T) {
 	}
 }
 
+func CaseMkdirExistingFile(fs *FileSystem, t *testing.T) {
+	_, err := fs.OpenFile(P{"foo.txt"}, os.O_CREATE|os.O_RDWR, 0777)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	err = fs.Mkdir(P{"foo.txt"}, 777)
+	if err == nil {
+		t.Fatalf("expected err")
+	}
+
+	perr := err.(*os.PathError)
+	if perr.Err != os.ErrExist {
+		t.Fatalf("expected os.ErrExists, got: %v", err)
+	}
+}
+
+func CaseMkdirParentNotExist(fs *FileSystem, t *testing.T) {
+	err := fs.Mkdir(P{"foo", "bar"}, 777)
+	if err == nil {
+		t.Fatalf("expected err")
+	}
+
+	perr := err.(*os.PathError)
+	if perr.Err != os.ErrNotExist {
+		t.Fatalf("expected os.ErrNotExist, got: %v", err)
+	}
+}
+
+func CaseMkdirParentNotDirectory(fs *FileSystem, t *testing.T) {
+	_, err := fs.OpenFile(P{"foo.txt"}, os.O_CREATE|os.O_RDWR, 0777)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	err = fs.Mkdir(P{"foo.txt", "foo"}, 777)
+	if err == nil {
+		t.Fatalf("expected err")
+	}
+
+	perr := err.(*os.PathError)
+	if perr.Err != ErrNotDirectory {
+		t.Fatalf("expected ErrNotDirectory, got: %v", err)
+	}
+}
+
 func TestAtomicCases(t *testing.T) {
 	db, close := testdb(t)
 	defer close()
@@ -203,12 +313,20 @@ func TestAtomicCases(t *testing.T) {
 	}{
 		{Name: "StatNonExisting", Case: CaseStatNonExisting},
 		{Name: "StatNonExisting", Case: CaseStatExisting},
-		{Name: "StatNonExisting", Case: CaseStatInvalidPath},
+		{Name: "StatInvalidPath", Case: CaseStatInvalidPath},
 
-		{Name: "CaseOpenFileInvalidPath", Case: CaseOpenFileInvalidPath},
-		{Name: "CaseOpenFileCreateNonExisting", Case: CaseOpenFileCreateNonExisting},
+		{Name: "OpenFileInvalidPath", Case: CaseOpenFileInvalidPath},
+		{Name: "OpenFileCreateNonExisting", Case: CaseOpenFileCreateNonExisting},
+		{Name: "OpenFileParentNotDirectory", Case: CaseOpenFileParentNotDirectory},
+		{Name: "OpenFileParentNotExist", Case: CaseOpenFileParentNotExist},
+		{Name: "OpenFileExclusive", Case: CaseOpenFileExclusive},
+		{Name: "OpenFileNonExisting", Case: CaseOpenFileNonExisting},
 
-		{Name: "CaseMkdirNonExisting", Case: CaseMkdirNonExisting},
+		{Name: "MkdirInvalidPath", Case: CaseMkdirInvalidPath},
+		{Name: "MkdirNonExisting", Case: CaseMkdirNonExisting},
+		{Name: "MkdirExistingFile", Case: CaseMkdirExistingFile},
+		{Name: "MkdirParentNotDirectory", Case: CaseMkdirParentNotDirectory},
+		{Name: "MkdirParentNotExist", Case: CaseMkdirParentNotExist},
 	}
 
 	for _, c := range cases {

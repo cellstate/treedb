@@ -92,6 +92,7 @@ func NewFileSystem(id string, db *bolt.DB) (fs *FileSystem, err error) {
 
 func (fs *FileSystem) mightwrite(flag int) bool {
 	//return whether the open() call might require a writeable transaction
+	//@TODO figure out if file writes still cause the transaction to be writeable
 	if flag&os.O_WRONLY != 0 || //might write file chunks
 		flag&os.O_CREATE != 0 || //might create a file
 		flag&os.O_RDWR != 0 { //might write file chunks
@@ -272,6 +273,7 @@ func (fs *FileSystem) OpenFile(p P, flag int, perm os.FileMode) (f *File, err er
 	//transaction for each block? custom locking flag? If File
 	//IO gets another kind of lock on the db we can trim down on
 	//having a writable transaction here
+	//@TODO how do we update modtimes
 	f = &File{
 	//@TODO create io ready file
 	}
