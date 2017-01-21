@@ -468,8 +468,61 @@ func CaseFileReaddirNamesAll(fs *FileSystem, t *testing.T) {
 	}
 }
 
-func TestAtomicCases(t *testing.T) {
+func CaseRemoveInvalidPath(fs *FileSystem, t *testing.T) {
+	testfiles(fs, t)
+	err := fs.Remove(P{"bar\uFFFF.txt"})
+	if err == nil {
+		t.Error("expected error")
+	}
 
+}
+
+func CaseRemoveNonExisting(fs *FileSystem, t *testing.T) {
+	testfiles(fs, t)
+	err := fs.Remove(P{"c.txt"})
+	if err == nil {
+		t.Fatalf("expected err")
+	}
+
+	perr := err.(*os.PathError)
+	if perr.Err != os.ErrNotExist {
+		t.Fatalf("expected os.ErrNotExist, got: %v", err)
+	}
+}
+
+func CaseRemoveNonEmptyDir(fs *FileSystem, t *testing.T) {
+	testfiles(fs, t)
+	err := fs.Remove(P{"bar"})
+	if err == nil {
+		t.Fatalf("expected err")
+	}
+
+	perr := err.(*os.PathError)
+	if perr.Err != ErrNotEmptyDirectory {
+		t.Fatalf("expected os.ErrNotExist, got: %v", err)
+	}
+
+}
+
+func CaseRemoveEmptyDir(fs *FileSystem, t *testing.T) {
+	testfiles(fs, t)
+	err := fs.Mkdir(P{"empty-dir"}, 0777)
+	if err != nil {
+		t.Errorf("expected no error, got: %+v", err)
+	}
+
+	err = fs.Remove(P{"empty-dir"})
+	if err != nil {
+		t.Errorf("expected no error, got: %+v", err)
+	}
+
+	_, err = fs.Stat(P{"empty-dir"})
+	if !os.IsNotExist(err) {
+		t.Error("deleted directory should no longer exist")
+	}
+}
+
+func TestCases(t *testing.T) {
 	cases := []struct {
 		Name string
 		Case func(fs *FileSystem, t *testing.T)
@@ -497,6 +550,11 @@ func TestAtomicCases(t *testing.T) {
 		{Name: "FileReaddirLimitN", Case: CaseFileReaddirLimitN},
 
 		{Name: "FileReaddirNamesAll", Case: CaseFileReaddirNamesAll},
+
+		{Name: "RemoveInvalidPath", Case: CaseRemoveInvalidPath},
+		{Name: "RemoveNonExisting", Case: CaseRemoveNonExisting},
+		{Name: "RemoveNonEmptyDir", Case: CaseRemoveNonEmptyDir},
+		{Name: "RemoveEmptyDir", Case: CaseRemoveEmptyDir},
 	}
 
 	for _, c := range cases {

@@ -14,6 +14,8 @@ import (
 var (
 	//ErrNotDirectory is returned when a directory was expected
 	ErrNotDirectory = errors.New("not a directory")
+	//ErrNotEmptyDirectory tells us the directory was not empty
+	ErrNotEmptyDirectory = errors.New("directory is not empty")
 )
 
 //fileInfo holds our specific file information
@@ -147,6 +149,10 @@ func (fs *FileSystem) walkdir(tx *bolt.Tx, p P, startp P, fn walkFn) (err error)
 	return nil
 }
 
+func (fs *FileSystem) delfi(tx *bolt.Tx, p P) (err error) {
+	return tx.Bucket(fs.fbucket).Delete(p.Key())
+}
+
 func (fs *FileSystem) putfi(tx *bolt.Tx, p P, fi *fileInfo) (err error) {
 	v, err := json.Marshal(fi)
 	if err != nil {
@@ -169,6 +175,47 @@ func (fs *FileSystem) getfi(tx *bolt.Tx, p P) (fi *fileInfo, err error) {
 	}
 
 	return fi, nil
+}
+
+// Remove removes the named file or directory.
+// If there is an error, it will be of type *PathError.
+func (fs *FileSystem) Remove(p P) (err error) {
+	err = p.Validate()
+	if err != nil {
+		return p.Err("remove", err)
+	}
+
+	if err = fs.db.Update(func(tx *bolt.Tx) error {
+
+		//must exist for remove to succeed
+		fi, err := fs.getfi(tx, p)
+		if err != nil {
+			return err
+		}
+
+		//if its a directory, its must be empty
+		if fi.IsDir() {
+			empty := true
+			if err = fs.walkdir(tx, p, nil, func(pp P, childfi *fileInfo) error {
+				//if this is called at least one time, the dir is not empty, we  dont need to know more
+				empty = false
+				return errStopWalk
+			}); err != nil {
+				return err //error while walking
+			}
+
+			if !empty {
+				return ErrNotEmptyDirectory
+			}
+		}
+
+		//actually remove the item, open file handles might still perform io
+		return fs.delfi(tx, p)
+	}); err != nil {
+		return p.Err("remove", err)
+	}
+
+	return nil
 }
 
 // Mkdir creates a new directory with the specified name and permission bits. If
