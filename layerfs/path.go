@@ -1,4 +1,4 @@
-package treedb
+package layerfs
 
 import (
 	"errors"
@@ -7,14 +7,9 @@ import (
 )
 
 const (
-	//PathSeparator is used to join path into database keys. Bolt stores values in a bucket in byte-order, choosing a unicode code point all the way at the end allows us to make assumptions when we use a cursor to iterate over directory entries
-	PathSeparator = "\uFFFF"
-
-	//PathPrintSeparator is used instead of the character above to print a path
-	PathPrintSeparator = "/"
-
-	//RootBasename is returned when the root is asked for its basename
-	RootBasename = PathSeparator
+	//PathSeparator is used to join path components and is equal across platform
+	//making the database to portable
+	PathSeparator = "/"
 )
 
 var (
@@ -64,12 +59,12 @@ func (p P) Base() string {
 
 //Key returns a byte slice used for database retrieval and storage
 func (p P) Key() []byte {
-	return []byte(PathSeparator + strings.Join(p, PathSeparator))
+	return []byte(p.String())
 }
 
-//String implements stringer for the Path type that returns something more human friendly that shows familiar forward slashes
+//String implements stringer for the Path type
 func (p P) String() string {
-	return PathPrintSeparator + strings.Join(p, PathPrintSeparator)
+	return PathSeparator + strings.Join(p, PathSeparator)
 }
 
 //Err allows easy creation of PathErrors

@@ -37,6 +37,34 @@ func testfs(t *testing.T) (fs *FileSystem, close func()) {
 	return fs, close
 }
 
+func testfiles(fs *FileSystem, t *testing.T) {
+	_, err := fs.OpenFile(P{"a.txt"}, os.O_CREATE, 0777)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = fs.OpenFile(P{"b.txt"}, os.O_CREATE, 0777)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	//the one-to last unicode char is still valid and should be ordered before the next dir
+	_, err = fs.OpenFile(P{"bar\uFFFEc.txt"}, os.O_CREATE, 0777)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = fs.Mkdir(P{"bar"}, 0777)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = fs.OpenFile(P{"bar", "c.txt"}, os.O_CREATE, 0777)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return
+}
+
 func TestGetFileInfoNonExisting(t *testing.T) {
 	fs, close := testfs(t)
 	defer close()
@@ -100,7 +128,7 @@ func CaseStatNonExisting(fs *FileSystem, t *testing.T) {
 }
 
 func CaseStatInvalidPath(fs *FileSystem, t *testing.T) {
-	_, err := fs.Stat(P{"fo/o.txt"})
+	_, err := fs.Stat(P{"fo\uFFFFo.txt"})
 	if err == nil {
 		t.Fatal("expected err")
 	}
@@ -120,8 +148,8 @@ func CaseStatExisting(fs *FileSystem, t *testing.T) {
 		t.Error("expected root to be a directory")
 	}
 
-	if fi.Name() != "/" {
-		t.Error("expected basename of root to be /")
+	if fi.Name() != PathSeparator {
+		t.Error("expected basename of root to be PathSeperator")
 	}
 
 	if fi.ModTime().IsZero() {
@@ -130,7 +158,7 @@ func CaseStatExisting(fs *FileSystem, t *testing.T) {
 }
 
 func CaseOpenFileInvalidPath(fs *FileSystem, t *testing.T) {
-	_, err := fs.OpenFile(P{"fo/o.txt"}, 0, 0)
+	_, err := fs.OpenFile(P{"fo\uFFFFo.txt"}, 0, 0)
 	if err == nil {
 		t.Fatal("expected err")
 	}
@@ -214,6 +242,13 @@ func CaseOpenFileExclusive(fs *FileSystem, t *testing.T) {
 	}
 }
 
+func CaseOpenFileReadOnly(fs *FileSystem, t *testing.T) {
+	_, err := fs.OpenFile(Root, os.O_RDONLY, 0777)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+}
+
 func CaseOpenFileNonExisting(fs *FileSystem, t *testing.T) {
 	_, err := fs.OpenFile(P{"foo.txt"}, os.O_RDWR, 0777)
 	if err == os.ErrNotExist {
@@ -222,7 +257,7 @@ func CaseOpenFileNonExisting(fs *FileSystem, t *testing.T) {
 }
 
 func CaseMkdirInvalidPath(fs *FileSystem, t *testing.T) {
-	err := fs.Mkdir(P{"fo/o.txt"}, 0)
+	err := fs.Mkdir(P{"fo\uFFFFo.txt"}, 0)
 	if err == nil {
 		t.Fatal("expected err")
 	}
@@ -303,9 +338,25 @@ func CaseMkdirParentNotDirectory(fs *FileSystem, t *testing.T) {
 	}
 }
 
+func CaseFileReaddirAll(fs *FileSystem, t *testing.T) {
+	testfiles(fs, t)
+
+	f, err := fs.Open(Root)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	infos, err := f.Readdir(-1)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	if len(infos) != 2 {
+		t.Error("expected two directory entries")
+	}
+}
+
 func TestAtomicCases(t *testing.T) {
-	db, close := testdb(t)
-	defer close()
 
 	cases := []struct {
 		Name string
@@ -319,6 +370,8 @@ func TestAtomicCases(t *testing.T) {
 		{Name: "OpenFileCreateNonExisting", Case: CaseOpenFileCreateNonExisting},
 		{Name: "OpenFileParentNotDirectory", Case: CaseOpenFileParentNotDirectory},
 		{Name: "OpenFileParentNotExist", Case: CaseOpenFileParentNotExist},
+
+		{Name: "OpenFileReadOnly", Case: CaseOpenFileReadOnly},
 		{Name: "OpenFileExclusive", Case: CaseOpenFileExclusive},
 		{Name: "OpenFileNonExisting", Case: CaseOpenFileNonExisting},
 
@@ -327,10 +380,15 @@ func TestAtomicCases(t *testing.T) {
 		{Name: "MkdirExistingFile", Case: CaseMkdirExistingFile},
 		{Name: "MkdirParentNotDirectory", Case: CaseMkdirParentNotDirectory},
 		{Name: "MkdirParentNotExist", Case: CaseMkdirParentNotExist},
+
+		{Name: "FileReaddirAll", Case: CaseFileReaddirAll},
 	}
 
 	for _, c := range cases {
 		t.Run(c.Name, func(t *testing.T) {
+			db, close := testdb(t)
+			defer close()
+
 			fs, err := NewFileSystem(t.Name(), db)
 			if err != nil {
 				t.Fatal(err)

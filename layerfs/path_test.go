@@ -1,4 +1,4 @@
-package treedb
+package layerfs
 
 import (
 	"bytes"
@@ -8,7 +8,7 @@ import (
 )
 
 func TestInvalidPathErr(t *testing.T) {
-	p := P{"foo", "bar", "foo\uFFFFbar"}
+	p := P{"foo", "bar", "foo/bar"}
 	err := p.Validate()
 	if err != ErrInvalidPath {
 		t.Error("expected ErrInvalidPath")
@@ -56,7 +56,7 @@ func TestPathBase(t *testing.T) {
 		t.Error("expected path base to be this")
 	}
 
-	if Root.Base() != RootBasename {
+	if Root.Base() != "/" {
 		t.Error("base of the root is special")
 	}
 }
@@ -82,7 +82,7 @@ func TestPathParent(t *testing.T) {
 
 func TestPathKey(t *testing.T) {
 	p := P{"foo", "bar"}
-	if !bytes.Equal(p.Key(), []byte("\uFFFFfoo\uFFFFbar")) {
+	if !bytes.Equal(p.Key(), []byte("/foo/bar")) {
 		t.Error("expected path key to equal string path")
 	}
 }

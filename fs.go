@@ -53,9 +53,6 @@ type FileSystem struct {
 	db *bolt.DB
 }
 
-//File provides an handler for writing and reading
-type File struct{}
-
 //NewFileSystem sets up a new file system in a bolt database with
 //an unique id that allows multiple filesystems per database
 func NewFileSystem(id string, db *bolt.DB) (fs *FileSystem, err error) {
@@ -189,6 +186,14 @@ func (fs *FileSystem) Mkdir(p P, perm os.FileMode) (err error) {
 	return nil
 }
 
+// Open opens the named file for reading. If successful, methods on
+// the returned file can be used for reading; the associated file
+// descriptor has mode O_RDONLY.
+// If there is an error, it will be of type *PathError.
+func (fs *FileSystem) Open(p P) (*File, error) {
+	return fs.OpenFile(p, os.O_RDONLY, 0)
+}
+
 // OpenFile is the generalized open call. It opens the named file with specified
 // flag (O_RDONLY etc.) and perm, (0666 etc.) if applicable. If successful,
 // methods on the returned File can be used for I/O. If there is an error, it will
@@ -216,6 +221,10 @@ func (fs *FileSystem) OpenFile(p P, flag int, perm os.FileMode) (f *File, err er
 
 	//always end the transaction
 	defer func() {
+		if !tx.Writable() {
+			return
+		}
+
 		if cerr := tx.Commit(); cerr != nil {
 			err = cerr //commit errors will take precedence
 		}
@@ -268,17 +277,8 @@ func (fs *FileSystem) OpenFile(p P, flag int, perm os.FileMode) (f *File, err er
 		return nil, p.Err("open", os.ErrNotExist)
 	}
 
-	//Setup IO to the actual file
-	//@TODO How do we represent a file handle in our system?
-	//transaction for each block? custom locking flag? If File
-	//IO gets another kind of lock on the db we can trim down on
-	//having a writable transaction here
-	//@TODO how do we update modtimes
-	f = &File{
-	//@TODO create io ready file
-	}
-
-	return f, nil
+	//finally set up the file (handle) with available info
+	return NewFile(fs, p), nil
 }
 
 //Stat returns a FileInfo describing the named file
