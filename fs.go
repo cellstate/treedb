@@ -1,6 +1,7 @@
 package treedb
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -53,6 +54,12 @@ type FileSystem struct {
 	db *bolt.DB
 }
 
+//walkFn can be provided t
+type walkFn func(p P, fi *fileInfo) (err error)
+
+//errStopWalk can be returned  by the walkFn to stop iterating a directory
+var errStopWalk = errors.New("stop walk")
+
 //NewFileSystem sets up a new file system in a bolt database with
 //an unique id that allows multiple filesystems per database
 func NewFileSystem(id string, db *bolt.DB) (fs *FileSystem, err error) {
@@ -97,6 +104,47 @@ func (fs *FileSystem) mightwrite(flag int) bool {
 	}
 
 	return false
+}
+
+func (fs *FileSystem) walkdir(tx *bolt.Tx, p P, startp P, fn walkFn) (err error) {
+	c := tx.Bucket(fs.fbucket).Cursor()
+	prefix := p.Key()
+
+	//we can start walking from a different item if startp is not nitl, this
+	//is used by readdir to continue from a path it left off
+	start := prefix
+	if startp != nil {
+		start = startp.Key()
+	}
+
+	for k, v := c.Seek(start); k != nil && bytes.HasPrefix(k, prefix); k, v = c.Next() {
+		if bytes.Equal(start, k) {
+			continue
+		}
+
+		parts := bytes.SplitN(bytes.TrimPrefix(k, prefix), []byte(PathSeparator), 2)
+		if len(parts) > 1 {
+			break //end of the directory
+		}
+
+		fi := &fileInfo{}
+		err = json.Unmarshal(v, fi)
+		if err != nil {
+			return fmt.Errorf("failed to deserialize: %v", err)
+		}
+
+		childp := PathFromKey(k)
+		err = fn(childp, fi)
+		if err != nil {
+			if err == errStopWalk {
+				return nil
+			}
+
+			return err
+		}
+	}
+
+	return nil
 }
 
 func (fs *FileSystem) putfi(tx *bolt.Tx, p P, fi *fileInfo) (err error) {

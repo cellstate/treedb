@@ -31,6 +31,11 @@ var (
 	Root = P{}
 )
 
+//PathFromKey turns a database key into its Path representation
+func PathFromKey(k []byte) P {
+	return strings.Split(strings.TrimPrefix(string(k), PathSeparator), PathSeparator)
+}
+
 //Validate is used to check if a given Path is valid, it
 //returns an ErrInvalidPath if the path is invalid nil otherwise
 func (p P) Validate() error {

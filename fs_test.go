@@ -1,6 +1,7 @@
 package treedb
 
 import (
+	"io"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -346,13 +347,124 @@ func CaseFileReaddirAll(fs *FileSystem, t *testing.T) {
 		t.Fatalf("expected no error, got: %v", err)
 	}
 
+	//in < 0 mode, readdir returns all without an EOF error
 	infos, err := f.Readdir(-1)
 	if err != nil {
 		t.Fatalf("expected no error, got: %v", err)
 	}
 
+	if len(infos) != 4 {
+		t.Fatal("expected this many directory entries")
+	}
+
+	if infos[0].Name() != "a.txt" {
+		t.Error("expected this file")
+	}
+
+	if infos[1].Name() != "b.txt" {
+		t.Error("expected this file")
+	}
+
+	if infos[2].Name() != "bar" || infos[2].IsDir() != true {
+		t.Error("expected this dir")
+	}
+
+	if infos[3].Name() != "bar\uFFFEc.txt" {
+		t.Error("expected this file")
+	}
+
+}
+
+func CaseFileReaddirLimitN(fs *FileSystem, t *testing.T) {
+	testfiles(fs, t)
+
+	f, err := fs.Open(Root)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	//in > 0 mode, readdir returns at most these number of fis
+	infos, err := f.Readdir(2)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
 	if len(infos) != 2 {
-		t.Error("expected two directory entries")
+		t.Error("expected this many directory entries")
+	}
+	//second call should also succeed, we have 4 entries
+	infos2, err := f.Readdir(2)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	if len(infos2) != 2 {
+		t.Error("expected this many directory entries")
+	}
+
+	//third call should fail with EOF
+	infos3, err := f.Readdir(2)
+	if err != io.EOF {
+		t.Error("expected EOF for third readdir call")
+	}
+
+	if len(infos3) != 0 {
+		t.Error("expected this many directory entries")
+	}
+
+	//new call should reset internal state
+	infos4, err := f.Readdir(0)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	if len(infos4) != 4 {
+		t.Error("expected this many directory entries")
+	}
+
+	//newly reset internal state returns first 2 dirs again
+	infos5, err := f.Readdir(2)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	if len(infos5) != 2 {
+		t.Error("expected this many directory entries")
+	}
+}
+
+func CaseFileReaddirNamesAll(fs *FileSystem, t *testing.T) {
+	testfiles(fs, t)
+
+	f, err := fs.Open(Root)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	//in <= 0 mode, readdir returns all without an EOF error
+	names, err := f.Readdirnames(0)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	if len(names) != 4 {
+		t.Fatal("expected this many directory names")
+	}
+
+	if names[0] != "a.txt" {
+		t.Error("expected this name")
+	}
+
+	if names[1] != "b.txt" {
+		t.Error("expected this name")
+	}
+
+	if names[2] != "bar" {
+		t.Error("expected this name")
+	}
+
+	if names[3] != "bar\uFFFEc.txt" {
+		t.Error("expected this name")
 	}
 }
 
@@ -382,6 +494,9 @@ func TestAtomicCases(t *testing.T) {
 		{Name: "MkdirParentNotExist", Case: CaseMkdirParentNotExist},
 
 		{Name: "FileReaddirAll", Case: CaseFileReaddirAll},
+		{Name: "FileReaddirLimitN", Case: CaseFileReaddirLimitN},
+
+		{Name: "FileReaddirNamesAll", Case: CaseFileReaddirNamesAll},
 	}
 
 	for _, c := range cases {

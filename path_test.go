@@ -86,3 +86,10 @@ func TestPathKey(t *testing.T) {
 		t.Error("expected path key to equal string path")
 	}
 }
+
+func TestFromKey(t *testing.T) {
+	p := PathFromKey([]byte("\uFFFFfoo\uFFFFbar"))
+	if len(p) != 2 {
+		t.Errorf("expected key to be correctly parsed, got: %+v", p)
+	}
+}
