@@ -7,9 +7,14 @@ import (
 )
 
 const (
-	//PathSeparator is used to join path components and is equal across platform
-	//making the database to portable
-	PathSeparator = "/"
+	//PathSeparator is used to join path into database keys. Bolt stores values in a bucket in byte-order, choosing a unicode code point all the way at the end allows us to make assumptions when we use a cursor to iterate over directory entries
+	PathSeparator = "\uFFFF"
+
+	//PathPrintSeparator is used instead of the character above to print a path
+	PathPrintSeparator = "/"
+
+	//RootBasename is returned when the root is asked for its basename
+	RootBasename = PathSeparator
 )
 
 var (
@@ -25,6 +30,11 @@ var (
 	//Root is a path with zero components: len(Root) = 0
 	Root = P{}
 )
+
+//PathFromKey turns a database key into its Path representation
+// func PathFromKey(k []byte) P {
+// 	return strings.Split(strings.TrimPrefix(string(k), PathSeparator), PathSeparator)
+// }
 
 //Validate is used to check if a given Path is valid, it
 //returns an ErrInvalidPath if the path is invalid nil otherwise
@@ -57,14 +67,19 @@ func (p P) Base() string {
 	return p[len(p)-1]
 }
 
-//Key returns a byte slice used for database retrieval and storage
-func (p P) Key() []byte {
-	return []byte(p.String())
+//Equals compare paths based on their joined components
+func (p P) Equals(d P) bool {
+	return (strings.Join(p, PathSeparator) == strings.Join(d, PathSeparator))
 }
 
-//String implements stringer for the Path type
+//Key returns a byte slice used for database retrieval and storage
+// func (p P) Key() []byte {
+// 	return []byte(PathSeparator + strings.Join(p, PathSeparator))
+// }
+
+//String implements stringer for the Path type that returns something more human friendly that shows familiar forward slashes
 func (p P) String() string {
-	return PathSeparator + strings.Join(p, PathSeparator)
+	return PathPrintSeparator + strings.Join(p, PathPrintSeparator)
 }
 
 //Err allows easy creation of PathErrors

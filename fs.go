@@ -124,26 +124,29 @@ func (fs *FileSystem) walkdir(tx *bolt.Tx, p P, startp P, fn walkFn) (err error)
 			continue
 		}
 
-		parts := bytes.SplitN(bytes.TrimPrefix(k, prefix), []byte(PathSeparator), 2)
-		if len(parts) > 1 {
-			break //end of the directory
-		}
+		_ = v
+		fmt.Println(string(k))
 
-		fi := &fileInfo{}
-		err = json.Unmarshal(v, fi)
-		if err != nil {
-			return fmt.Errorf("failed to deserialize: %v", err)
-		}
-
-		childp := PathFromKey(k)
-		err = fn(childp, fi)
-		if err != nil {
-			if err == errStopWalk {
-				return nil
-			}
-
-			return err
-		}
+		// parts := bytes.SplitN(bytes.TrimPrefix(k, prefix), []byte(PathSeparator), 2)
+		// if len(parts) > 1 {
+		// 	break //end of the directory
+		// }
+		//
+		// fi := &fileInfo{}
+		// err = json.Unmarshal(v, fi)
+		// if err != nil {
+		// 	return fmt.Errorf("failed to deserialize: %v", err)
+		// }
+		//
+		// childp := PathFromKey(k)
+		// err = fn(childp, fi)
+		// if err != nil {
+		// 	if err == errStopWalk {
+		// 		return nil
+		// 	}
+		//
+		// 	return err
+		// }
 	}
 
 	return nil
@@ -177,6 +180,25 @@ func (fs *FileSystem) getfi(tx *bolt.Tx, p P) (fi *fileInfo, err error) {
 	return fi, nil
 }
 
+// RemoveAll removes path and any children it contains. It removes everything it can but returns the first error it encounters. If the path does not exist, RemoveAll returns nil (no error).
+func (fs *FileSystem) RemoveAll(p P) (err error) {
+	err = p.Validate()
+	if err != nil {
+		return p.Err("removeall", err)
+	}
+
+	if err = fs.db.Update(func(tx *bolt.Tx) error {
+
+		//@TODO walkdir (deep) and remove all keys
+
+		return nil
+	}); err != nil {
+		return p.Err("remove", err)
+	}
+
+	return nil
+}
+
 // Remove removes the named file or directory.
 // If there is an error, it will be of type *PathError.
 func (fs *FileSystem) Remove(p P) (err error) {
@@ -197,7 +219,7 @@ func (fs *FileSystem) Remove(p P) (err error) {
 		if fi.IsDir() {
 			empty := true
 			if err = fs.walkdir(tx, p, nil, func(pp P, childfi *fileInfo) error {
-				//if this is called at least one time, the dir is not empty, we  dont need to know more
+				//if this is called at least one time, the dir is not empty, we dont need to know more
 				empty = false
 				return errStopWalk
 			}); err != nil {

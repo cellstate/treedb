@@ -1,14 +1,13 @@
 package layerfs
 
 import (
-	"bytes"
 	"fmt"
 	"os"
 	"testing"
 )
 
 func TestInvalidPathErr(t *testing.T) {
-	p := P{"foo", "bar", "foo/bar"}
+	p := P{"foo", "bar", "foo\uFFFFbar"}
 	err := p.Validate()
 	if err != ErrInvalidPath {
 		t.Error("expected ErrInvalidPath")
@@ -56,7 +55,7 @@ func TestPathBase(t *testing.T) {
 		t.Error("expected path base to be this")
 	}
 
-	if Root.Base() != "/" {
+	if Root.Base() != RootBasename {
 		t.Error("base of the root is special")
 	}
 }
@@ -80,9 +79,34 @@ func TestPathParent(t *testing.T) {
 	}
 }
 
-func TestPathKey(t *testing.T) {
-	p := P{"foo", "bar"}
-	if !bytes.Equal(p.Key(), []byte("/foo/bar")) {
-		t.Error("expected path key to equal string path")
+func TestPathEquality(t *testing.T) {
+	b := P{"foo", "bar"}.Equals(P{"foobar"})
+	if b {
+		t.Error("should not be equal")
 	}
+
+	b = P{}.Equals(Root)
+	if !b {
+		t.Error("should be equal")
+	}
+
+	b = P{"foo", "bar"}.Equals(P{"foo", "bar"})
+	if !b {
+		t.Error("should be equal")
+	}
+
 }
+
+// func TestPathKey(t *testing.T) {
+// 	p := P{"foo", "bar"}
+// 	if !bytes.Equal(p.Key(), []byte("\uFFFFfoo\uFFFFbar")) {
+// 		t.Error("expected path key to equal string path")
+// 	}
+// }
+//
+// func TestFromKey(t *testing.T) {
+// 	p := PathFromKey([]byte("\uFFFFfoo\uFFFFbar"))
+// 	if len(p) != 2 {
+// 		t.Errorf("expected key to be correctly parsed, got: %+v", p)
+// 	}
+// }

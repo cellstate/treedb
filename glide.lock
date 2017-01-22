@@ -1,10 +1,10 @@
-hash: 59fda9d3cffa8ab72639270a76d71588385a9630cbd9e307311be45008c627e5
-updated: 2017-01-16T20:28:48.980040444+01:00
+hash: 03c7b2f3697f17c551a8a89af0c946e2a0c7a2ba2eef0a16e379ec31993e6386
+updated: 2017-01-21T14:54:43.930207731+01:00
 imports:
 - name: github.com/boltdb/bolt
-  version: 583e8937c61f1af6513608ccc75c97b6abdf4ff9
-- name: golang.org/x/sys
-  version: d75a52659825e75fff6158388dddc6a5b04f9ba5
-  subpackages:
-  - unix
+  version: a705895fdad108f053eae7ee011ed94a0541ee13
+- name: github.com/keybase/go-codec
+  version: cc2681ec6f901149e58af9d40a90da1aa370aadb
+- name: github.com/keybase/go-merkle-tree
+  version: a2a53a828cf58801efa8285c651b0941b5abae8c
 testImports: []
