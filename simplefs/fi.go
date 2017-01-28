@@ -13,6 +13,11 @@ type fileInfo struct {
 	nodeID uint64 //id of the underlying node
 }
 
+//newFileInfo is simple file info constructor
+func newFileInfo(basename string, n *node, nodeID uint64) *fileInfo {
+	return &fileInfo{name: basename, node: n, nodeID: nodeID}
+}
+
 //Name of the file
 func (fi *fileInfo) Name() string { return fi.name }
 

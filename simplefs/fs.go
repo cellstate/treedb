@@ -82,7 +82,7 @@ func (fs *FileSystem) stat(tx *bolt.Tx, p P) (fi *fileInfo, err error) {
 		return nil, os.ErrNotExist
 	}
 
-	return &fileInfo{name: p.Base(), node: n, nodeID: nid}, nil
+	return newFileInfo(p.Base(), n, nid), nil
 }
 
 //Stat returns a FileInfo describing the named file. If there is an error, it will be of type *PathError.
@@ -128,7 +128,6 @@ func (fs *FileSystem) mkdir(tx *bolt.Tx, p P, perm os.FileMode) (err error) {
 		}
 
 		//@TODO find out if parent cascading below can be generalized
-
 		ntx, err := newNodeTx(tx, 0)
 		if err != nil {
 			return fmt.Errorf("failed to start new node tx: %v", err)
@@ -183,4 +182,112 @@ func (fs *FileSystem) Mkdir(p P, perm os.FileMode) (err error) {
 	}
 
 	return nil
+}
+
+func (fs *FileSystem) openFile(tx *bolt.Tx, p P, flag int, perm os.FileMode) (f *File, err error) {
+
+	fi, err := fs.stat(tx, p)
+	if err != nil {
+		if err != os.ErrNotExist {
+			return nil, err //something unexpected went wrong
+		}
+	}
+
+	//do we want to create (if it doesnt exist)
+	if flag&os.O_CREATE != 0 {
+		if fi == nil {
+
+			//@TODO generalize "addNode" logic below(?):
+			pp := p.Parent()
+
+			//check if parent exists
+			pfi, err := fs.stat(tx, pp)
+			if err != nil {
+				return nil, err
+			}
+
+			//check if its a directory
+			if !pfi.IsDir() {
+				return nil, ErrNotDirectory
+			}
+
+			ntx, err := newNodeTx(tx, 0)
+			if err != nil {
+				return nil, fmt.Errorf("failed to start new node tx: %v", err)
+			}
+
+			nodeID, n, err := ntx.putNode(perm)
+			if err != nil {
+				return nil, fmt.Errorf("failed to put new node: %v", err)
+			}
+
+			pntx, err := newNodeTx(tx, pfi.nodeID)
+			if err != nil {
+				return nil, fmt.Errorf("failed to start parent node tx: %v", err)
+			}
+
+			err = pntx.putChildPtr(p.Base(), nodeID)
+			if err != nil {
+				return nil, fmt.Errorf("failed to put child ptr: %v", err)
+			}
+
+			_, _, err = pntx.putNode(pfi.Mode())
+			if err != nil {
+				return nil, fmt.Errorf("failed to update parent node: %v", err)
+			}
+
+			fi = newFileInfo(p.Base(), n, nodeID)
+		} else if flag&os.O_EXCL != 0 {
+			return nil, os.ErrExist //it existed, but user wants exclusive access
+		}
+	}
+
+	//at this point we expect some file information
+	if fi == nil {
+		return nil, os.ErrNotExist
+	}
+
+	return f, nil
+}
+
+// OpenFile is the generalized open call. It opens the named file with specified flag (O_RDONLY etc.) and perm, (0666 etc.) if applicable. If successful, methods on the returned File can be used for I/O. If there is an error, it will be of type *PathError. Behaviour can be customized with the following flags:
+//
+//   O_RDONLY int = syscall.O_RDONLY // open the file read-only.
+//   O_WRONLY int = syscall.O_WRONLY // open the file write-only.
+//   O_RDWR   int = syscall.O_RDWR   // open the file read-write.
+//   O_APPEND int = syscall.O_APPEND // append data to the file when writing.
+//   O_SYNC   int = syscall.O_SYNC   // open for synchronous I/O.
+//   O_TRUNC  int = syscall.O_TRUNC  // if possible, truncate file when opened.
+//   O_CREATE int = syscall.O_CREATE  // create a new file if none exists.
+//   O_EXCL   int = syscall.O_EXCL   // used with O_CREATE, file must not exist
+func (fs *FileSystem) OpenFile(p P, flag int, perm os.FileMode) (f *File, err error) {
+	err = p.Validate()
+	if err != nil {
+		return nil, p.Err("open", err)
+	}
+
+	//begin the transaction
+	//@TODO dont use a writeable transaction if flags indicate read only
+	tx, err := fs.db.Begin(true)
+	if err != nil {
+		return nil, err
+	}
+
+	f, err = fs.openFile(tx, p, flag, perm)
+	if err != nil {
+		return nil, p.Err("open", err)
+	}
+
+	//always end the transaction
+	defer func() {
+		if !tx.Writable() {
+			return
+		}
+
+		if cerr := tx.Commit(); cerr != nil {
+			err = cerr //commit errors will take precedence
+		}
+	}()
+
+	return f, nil
 }
