@@ -8,8 +8,9 @@ import (
 //fileInfo holds our specific file information
 //and implements the os.FileInfo interface
 type fileInfo struct {
-	name string // base name of the file, inferred from OpenFile args
-	node *node  //underlying persistent node
+	name   string // base name of the file, inferred from OpenFile args
+	node   *node  //underlying persistent node
+	nodeID uint64 //id of the underlying node
 }
 
 //Name of the file

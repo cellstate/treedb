@@ -82,10 +82,10 @@ func (fs *FileSystem) stat(tx *bolt.Tx, p P) (fi *fileInfo, err error) {
 		return nil, os.ErrNotExist
 	}
 
-	return &fileInfo{name: p.Base(), node: n}, nil
+	return &fileInfo{name: p.Base(), node: n, nodeID: nid}, nil
 }
 
-//Stat returns a FileInfo describing the named file
+//Stat returns a FileInfo describing the named file. If there is an error, it will be of type *PathError.
 func (fs *FileSystem) Stat(p P) (fi os.FileInfo, err error) {
 	err = p.Validate()
 	if err != nil {
@@ -106,68 +106,81 @@ func (fs *FileSystem) Stat(p P) (fi os.FileInfo, err error) {
 	return fi, nil
 }
 
-// Mkdir creates a new directory with the specified name and permission bits. If
-// there is an error, it will be of type *PathError.
-// func (fs *FileSystem) Mkdir(p P, perm os.FileMode) (err error) {
-// 	err = p.Validate()
-// 	if err != nil {
-// 		return p.Err("mkdir", err)
-// 	}
-//
-// 	//begin the transaction
-// 	tx, err := fs.db.Begin(true)
-// 	if err != nil {
-// 		return err
-// 	}
-//
-// 	//always end the transaction
-// 	defer func() {
-// 		if cerr := tx.Commit(); cerr != nil {
-// 			err = cerr //commit errors will take precedence
-// 		}
-// 	}()
-//
-// 	//check if parent exists
-// 	// pp := p.Parent()
-//
-// 	// pntx, err := newNodeTx(tx, id)
-//
-// 	// pfi, err := fs.getfi(tx, pp)
-// 	// if err != nil {
-// 	// 	return pp.Err("mkdir", err) //no parent or some other problem with its path
-// 	// }
-//
-// 	//check if its a directory
-// 	// if !pfi.IsDir() {
-// 	// 	return pp.Err("mkdir", ErrNotDirectory)
-// 	// }
-//
-// 	//check if the directory already exists
-// 	// fi, err := fs.getfi(tx, p)
-// 	// if err != nil {
-// 	// 	if err != os.ErrNotExist {
-// 	// 		return p.Err("mkdir", err)
-// 	// 	}
-// 	//
-// 	// 	// //dir doesnt exist; create it
-// 	// 	// fi = &fileInfo{
-// 	// 	// 	N: p.Base(),
-// 	// 	// 	M: os.ModeDir | perm,
-// 	// 	// 	T: time.Now(),
-// 	// 	// 	//@TODO complete information
-// 	// 	// }
-// 	//
-// 	// 	//and insert the record
-// 	// 	// if err = fs.putfi(tx, p, fi); err != nil {
-// 	// 	// 	return p.Err("mkdir", err)
-// 	// 	// }
-// 	//
-// 	// } else {
-// 	// 	if !fi.IsDir() {
-// 	// 		//dir exists but is not a directory
-// 	// 		return p.Err("mkdir", os.ErrExist)
-// 	// 	}
-// 	// }
-//
-// 	return nil
-// }
+func (fs *FileSystem) mkdir(tx *bolt.Tx, p P, perm os.FileMode) (err error) {
+	pp := p.Parent()
+
+	//check if parent exists
+	pfi, err := fs.stat(tx, pp)
+	if err != nil {
+		return err
+	}
+
+	//check if its a directory
+	if !pfi.IsDir() {
+		return ErrNotDirectory
+	}
+
+	//check if the directory itself already exists
+	fi, err := fs.stat(tx, p)
+	if err != nil {
+		if err != os.ErrNotExist {
+			return err
+		}
+
+		//@TODO find out if parent cascading below can be generalized
+
+		ntx, err := newNodeTx(tx, 0)
+		if err != nil {
+			return fmt.Errorf("failed to start new node tx: %v", err)
+		}
+
+		nodeID, _, err := ntx.putNode(os.ModeDir | perm)
+		if err != nil {
+			return fmt.Errorf("failed to put new node: %v", err)
+		}
+
+		pntx, err := newNodeTx(tx, pfi.nodeID)
+		if err != nil {
+			return fmt.Errorf("failed to start parent node tx: %v", err)
+		}
+
+		err = pntx.putChildPtr(p.Base(), nodeID)
+		if err != nil {
+			return fmt.Errorf("failed to put child ptr: %v", err)
+		}
+
+		_, _, err = pntx.putNode(pfi.Mode())
+		if err != nil {
+			return fmt.Errorf("failed to update parent node: %v", err)
+		}
+
+	} else {
+		if !fi.IsDir() {
+			//node at path exists but is not a directory
+			return os.ErrExist
+		}
+	}
+
+	return nil
+}
+
+// Mkdir creates a new directory with the specified name and permission bits. If there is an error, it will be of type *PathError.
+func (fs *FileSystem) Mkdir(p P, perm os.FileMode) (err error) {
+	err = p.Validate()
+	if err != nil {
+		return p.Err("mkdir", err)
+	}
+
+	if err = fs.db.Update(func(tx *bolt.Tx) error {
+		err = fs.mkdir(tx, p, perm)
+		if err != nil {
+			return err
+		}
+
+		return nil
+	}); err != nil {
+		return p.Err("mkdir", err)
+	}
+
+	return nil
+}

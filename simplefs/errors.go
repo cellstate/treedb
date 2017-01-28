@@ -10,6 +10,13 @@ var (
 )
 
 var (
+	//ErrNotDirectory is returned when a directory was expected
+	ErrNotDirectory = errors.New("not a directory")
+	//ErrNotEmptyDirectory tells us the directory was not empty
+	ErrNotEmptyDirectory = errors.New("directory is not empty")
+)
+
+var (
 	//ErrSerialize is returned when we couldnt serialize
 	ErrSerialize = errors.New("failed to serialize")
 

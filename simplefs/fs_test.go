@@ -53,3 +53,30 @@ func TestStatRoot(t *testing.T) {
 		t.Errorf("expected root node to be a directory, got: %+v", fi)
 	}
 }
+
+func TestMkDir(t *testing.T) {
+	fs, close := testfs(t)
+	defer close()
+
+	err := fs.Mkdir(P{"foo"}, 0777)
+	if err != nil {
+		t.Fatalf("didn't expect error, got: %v", err)
+	}
+
+	fi, err := fs.Stat(P{"foo"})
+	if err != nil {
+		t.Fatalf("didn't expect error, got: %v", err)
+	}
+
+	if fi.Mode().Perm() != 0777 {
+		t.Fatalf("expected permissions to be: %v", err)
+	}
+
+	if fi.Name() != "foo" {
+		t.Errorf("expected fi name to be root basename, got: %v", fi.Name())
+	}
+
+	if !fi.IsDir() {
+		t.Errorf("expected node to be a directory, got: %+v", fi)
+	}
+}
