@@ -31,6 +31,16 @@ func btou64(b []byte) uint64 {
 	return binary.BigEndian.Uint64(b)
 }
 
+func childPtrKey(id uint64, name string) (k []byte) {
+	k = u64tob(id)
+	k = append(k, ChildPtrSeparator...)
+	if name != "" {
+		k = append(k, []byte(name)...)
+	}
+
+	return k
+}
+
 //low level node information, similar to a linux inode. Stored as
 //
 // |           Key      |       Data             |       Comment			 				 |
@@ -65,6 +75,22 @@ func newNodeTx(tx *bolt.Tx, id uint64) (ntx *nodeTx, err error) {
 	return &nodeTx{id: id, tx: tx}, nil
 }
 
+//getDecendantID will descend into subnodes following path 'p'
+func (ntx *nodeTx) getDescendantID(p P) (id uint64) {
+	id = ntx.id
+	for _, comp := range p {
+		k := childPtrKey(id, comp)
+		v := ntx.tx.Bucket(FileBucketName).Get(k)
+		if v == nil {
+			return 0
+		}
+
+		id = btou64(v)
+	}
+
+	return id
+}
+
 //putChunkPtr writes a prefixed key that points to a content-based chunk key
 func (ntx *nodeTx) putChunkPtr(offset int64, k [sha256.Size]byte) (err error) {
 	//1. create key using ntx.id and offset
@@ -75,7 +101,7 @@ func (ntx *nodeTx) putChunkPtr(offset int64, k [sha256.Size]byte) (err error) {
 //getChildPtrs will scan the children of node (if any) and call 'fn' for each
 func (ntx *nodeTx) getChildPtrs(fn func(name string, id uint64) error) (err error) {
 	c := ntx.tx.Bucket(FileBucketName).Cursor()
-	prefix := append(u64tob(ntx.id), ChildPtrSeparator...)
+	prefix := childPtrKey(ntx.id, "")
 	for k, v := c.Seek(prefix); k != nil && bytes.HasPrefix(k, prefix); k, v = c.Next() {
 		name := bytes.TrimPrefix(k, prefix)
 		err = fn(string(name), btou64(v))
@@ -89,10 +115,7 @@ func (ntx *nodeTx) getChildPtrs(fn func(name string, id uint64) error) (err erro
 
 //putChildPtr writes a prefixed key that points to another node
 func (ntx *nodeTx) putChildPtr(name string, id uint64) (err error) {
-	k := u64tob(ntx.id)
-	k = append(k, ChildPtrSeparator...)
-	k = append(k, []byte(name)...)
-	err = ntx.tx.Bucket(FileBucketName).Put(k, u64tob(id))
+	err = ntx.tx.Bucket(FileBucketName).Put(childPtrKey(ntx.id, name), u64tob(id))
 	if err != nil {
 		return fmt.Errorf("failed to put child ptr in %v: %v", ntx.id, err)
 	}
@@ -125,7 +148,7 @@ func (ntx *nodeTx) putNode(mode os.FileMode) (id uint64, n *node, err error) {
 func (ntx *nodeTx) getNode() (n *node, err error) {
 	v := ntx.tx.Bucket(FileBucketName).Get(u64tob(ntx.id))
 	if v == nil {
-		return nil, os.ErrNotExist
+		return nil, nil
 	}
 
 	n = &node{}
