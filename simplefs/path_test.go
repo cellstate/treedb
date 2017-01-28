@@ -94,19 +94,4 @@ func TestPathEquality(t *testing.T) {
 	if !b {
 		t.Error("should be equal")
 	}
-
 }
-
-// func TestPathKey(t *testing.T) {
-// 	p := P{"foo", "bar"}
-// 	if !bytes.Equal(p.Key(), []byte("\uFFFFfoo\uFFFFbar")) {
-// 		t.Error("expected path key to equal string path")
-// 	}
-// }
-//
-// func TestFromKey(t *testing.T) {
-// 	p := PathFromKey([]byte("\uFFFFfoo\uFFFFbar"))
-// 	if len(p) != 2 {
-// 		t.Errorf("expected key to be correctly parsed, got: %+v", p)
-// 	}
-// }

@@ -1,6 +1,7 @@
 package simplefs
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/json"
@@ -11,11 +12,23 @@ import (
 	"github.com/boltdb/bolt"
 )
 
+var (
+	//ChunkPtrSeparator separates a node key from a chunk offset
+	ChunkPtrSeparator = []byte(":")
+
+	//ChildPtrSeparator separates a node key from a child name
+	ChildPtrSeparator = []byte("/")
+)
+
 // u64tob converts a uint64 into an 8-capacity byte slice. From the author of bolt on sequential writes: https://github.com/boltdb/bolt/issues/338
 func u64tob(v uint64) []byte {
 	b := make([]byte, 8)
 	binary.BigEndian.PutUint64(b, v)
 	return b
+}
+
+func btou64(b []byte) uint64 {
+	return binary.BigEndian.Uint64(b)
 }
 
 //low level node information, similar to a linux inode. Stored as
@@ -59,23 +72,41 @@ func (ntx *nodeTx) putChunkPtr(offset int64, k [sha256.Size]byte) (err error) {
 	return ErrNotImplemented
 }
 
-//putChildPtr writes a prefixed key that points to another node
-func (ntx *nodeTx) putChildPtr(name string, id uint64) (err error) {
-	//1. create key using the ntx.id and child name
-	//2. write child id 'id' under db key
-	return ErrNotImplemented
-}
-
-//putInfo completes, serializes and (over)write the actual node
-func (ntx *nodeTx) putNode(mode os.FileMode) (id uint64, n *node, err error) {
-	n = &node{
-		Size:    0,
-		Mode:    mode,       //@TODO infer from presensense of childPtr/chunkPtr?
-		ModTime: time.Now(), //@TODO only update if things changed (checksum)?
+//getChildPtrs will scan the children of node (if any) and call 'fn' for each
+func (ntx *nodeTx) getChildPtrs(fn func(name string, id uint64) error) (err error) {
+	c := ntx.tx.Bucket(FileBucketName).Cursor()
+	prefix := append(u64tob(ntx.id), ChildPtrSeparator...)
+	for k, v := c.Seek(prefix); k != nil && bytes.HasPrefix(k, prefix); k, v = c.Next() {
+		name := bytes.TrimPrefix(k, prefix)
+		err = fn(string(name), btou64(v))
+		if err != nil {
+			return err
+		}
 	}
 
-	//@TODO cursor over node to refresh size data
-	//@TODO choose a different serialization method?
+	return nil
+}
+
+//putChildPtr writes a prefixed key that points to another node
+func (ntx *nodeTx) putChildPtr(name string, id uint64) (err error) {
+	k := u64tob(ntx.id)
+	k = append(k, ChildPtrSeparator...)
+	k = append(k, []byte(name)...)
+	err = ntx.tx.Bucket(FileBucketName).Put(k, u64tob(id))
+	if err != nil {
+		return fmt.Errorf("failed to put child ptr in %v: %v", ntx.id, err)
+	}
+
+	return nil
+}
+
+//putInfo completes, serializes and (over)writes the actual node key in the db
+func (ntx *nodeTx) putNode(mode os.FileMode) (id uint64, n *node, err error) {
+	n = &node{
+		Size:    0,          //@TODO cursor over node ptrs to refresh this
+		Mode:    mode,       //@TODO infer from presensense of childPtr/chunkPtr?
+		ModTime: time.Now(), //@TODO only update if things changed (add checksum)?
+	}
 
 	d, err := json.Marshal(n)
 	if err != nil {
@@ -92,7 +123,16 @@ func (ntx *nodeTx) putNode(mode os.FileMode) (id uint64, n *node, err error) {
 
 //getNode deserializes the node information and returns it
 func (ntx *nodeTx) getNode() (n *node, err error) {
-	//1. get value under key ntx.id
-	//2. deserialize and return
-	return n, ErrNotImplemented
+	v := ntx.tx.Bucket(FileBucketName).Get(u64tob(ntx.id))
+	if v == nil {
+		return nil, os.ErrNotExist
+	}
+
+	n = &node{}
+	err = json.Unmarshal(v, n)
+	if err != nil {
+		return nil, ErrDeserialize
+	}
+
+	return n, nil
 }
