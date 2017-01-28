@@ -25,3 +25,31 @@ func testdb(t *testing.T) (db *bolt.DB, close func()) {
 		db.Close()
 	}
 }
+
+func testfs(t *testing.T) (fs *FileSystem, close func()) {
+	db, close := testdb(t)
+	fs, err := New(db)
+	if err != nil {
+		t.Fatalf("failed to setup fs: %v", err)
+	}
+
+	return fs, close
+}
+
+func TestStatRoot(t *testing.T) {
+	fs, close := testfs(t)
+	defer close()
+
+	fi, err := fs.Stat(Root)
+	if err != nil {
+		t.Fatalf("didn't expect error, got: %v", err)
+	}
+
+	if fi.Name() != RootBasename {
+		t.Errorf("expected fi name to be root basename, got: %v", fi.Name())
+	}
+
+	if !fi.IsDir() {
+		t.Errorf("expected root node to be a directory, got: %+v", fi)
+	}
+}
