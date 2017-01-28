@@ -6,10 +6,9 @@ import (
 )
 
 //fileInfo holds our specific file information
-//and implements the os.FileInfo interface, the fields
-//are public for easier JSON (un)marshalling
+//and implements the os.FileInfo interface
 type fileInfo struct {
-	name string // base name of the file, inferred from path
+	name string // base name of the file, inferred from OpenFile args
 	node *node  //underlying persistent node
 }
 

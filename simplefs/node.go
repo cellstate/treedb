@@ -2,11 +2,21 @@ package simplefs
 
 import (
 	"crypto/sha256"
+	"encoding/binary"
+	"encoding/json"
+	"fmt"
 	"os"
 	"time"
 
 	"github.com/boltdb/bolt"
 )
+
+// u64tob converts a uint64 into an 8-capacity byte slice. From the author of bolt on sequential writes: https://github.com/boltdb/bolt/issues/338
+func u64tob(v uint64) []byte {
+	b := make([]byte, 8)
+	binary.BigEndian.PutUint64(b, v)
+	return b
+}
 
 //low level node information, similar to a linux inode. Stored as
 //
@@ -56,13 +66,28 @@ func (ntx *nodeTx) putChildPtr(name string, id uint64) (err error) {
 	return ErrNotImplemented
 }
 
-//putInfo completes, serializes and writes the actual node
-func (ntx *nodeTx) putNode(mode os.FileMode) (n *node, err error) {
-	//1. cursor over node to refresh necessary data
-	//2. complete node data with and mode, modtime
-	//3. serialize node
-	//4. write serialized node as value and ntx.id as key
-	return n, ErrNotImplemented
+//putInfo completes, serializes and (over)write the actual node
+func (ntx *nodeTx) putNode(mode os.FileMode) (id uint64, n *node, err error) {
+	n = &node{
+		Size:    0,
+		Mode:    mode,       //@TODO infer from presensense of childPtr/chunkPtr?
+		ModTime: time.Now(), //@TODO only update if things changed (checksum)?
+	}
+
+	//@TODO cursor over node to refresh size data
+	//@TODO choose a different serialization method?
+
+	d, err := json.Marshal(n)
+	if err != nil {
+		return 0, nil, ErrSerialize
+	}
+
+	err = ntx.tx.Bucket(FileBucketName).Put(u64tob(ntx.id), d)
+	if err != nil {
+		return 0, nil, fmt.Errorf("failed to put node %v: %v", ntx.id, err)
+	}
+
+	return ntx.id, n, nil
 }
 
 //getNode deserializes the node information and returns it
