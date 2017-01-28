@@ -1,6 +1,7 @@
 package simplefs
 
 import (
+	"crypto/rand"
 	"fmt"
 	"os"
 	"testing"
@@ -224,4 +225,82 @@ func TestDescendInDirNodes(t *testing.T) {
 
 	_ = root
 
+}
+
+func TestPutChunkPtrs(t *testing.T) {
+	db, close := testdb(t)
+	defer close()
+
+	k1 := K{}
+	_, err := rand.Read(k1[:])
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var fid uint64
+	if err := db.Update(func(tx *bolt.Tx) error {
+		_, err := tx.CreateBucketIfNotExists(FileBucketName)
+		if err != nil {
+			return err
+		}
+
+		fntx, err := newNodeTx(tx, 0) //new node
+		if err != nil {
+			return err
+		}
+
+		err = fntx.putChunkPtr(0, k1)
+		if err != nil {
+			return err
+		}
+
+		err = fntx.putChunkPtr(4*1024*1024, ZeroKey) //indicate EOF
+		if err != nil {
+			return err
+		}
+
+		fid, _, err = fntx.putNode(os.ModeDir | 0777)
+		if err != nil {
+			return err
+		}
+
+		return nil
+	}); err != nil {
+		t.Error(err)
+	}
+
+	chunks := map[int64]K{}
+	if err := db.View(func(tx *bolt.Tx) error {
+		fntx, err := newNodeTx(tx, fid) //new node
+		if err != nil {
+			return err
+		}
+
+		return fntx.getChunkPtrs(func(offset int64, k K) error {
+			chunks[offset] = k
+			return nil
+		})
+	}); err != nil {
+		t.Error(err)
+	}
+
+	if len(chunks) != 2 {
+		t.Errorf("expected this number of chunks, got: %+v", chunks)
+	}
+
+	if k, ok := chunks[0]; ok {
+		if k != k1 {
+			t.Error("expected this chunk for offset")
+		}
+	} else {
+		t.Errorf("expected this chunk, got: %+v", chunks)
+	}
+
+	if k, ok := chunks[4*1024*1024]; ok {
+		if k != ZeroKey {
+			t.Error("expected EOF chunk")
+		}
+	} else {
+		t.Errorf("expected this chunk, got: %+v", chunks)
+	}
 }

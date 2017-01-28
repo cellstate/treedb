@@ -2,7 +2,6 @@ package simplefs
 
 import (
 	"bytes"
-	"crypto/sha256"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
@@ -39,6 +38,17 @@ func childPtrKey(id uint64, name string) (k []byte) {
 	}
 
 	return k
+}
+
+func chunkPtrKey(id uint64, offset int64) (k []byte) {
+	k = append(u64tob(id), ChunkPtrSeparator...)
+	if offset < 0 {
+		return k
+	}
+
+	buf := make([]byte, 8)
+	binary.PutVarint(buf, offset)
+	return append(k, buf...)
 }
 
 //low level node information, similar to a linux inode. Stored as
@@ -91,11 +101,33 @@ func (ntx *nodeTx) getDescendantID(p P) (id uint64) {
 	return id
 }
 
+//getChunkPtrs will scan the children of node (if any) and call 'fn' for each
+func (ntx *nodeTx) getChunkPtrs(fn func(offset int64, k K) error) (err error) {
+	c := ntx.tx.Bucket(FileBucketName).Cursor()
+	prefix := chunkPtrKey(ntx.id, -1)
+	for k, v := c.Seek(prefix); k != nil && bytes.HasPrefix(k, prefix); k, v = c.Next() {
+		offsetb := bytes.TrimPrefix(k, prefix)
+		offset, _ := binary.Varint(offsetb)
+		ptrk := K{}
+		copy(ptrk[:], v)
+
+		err = fn(offset, ptrk)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 //putChunkPtr writes a prefixed key that points to a content-based chunk key
-func (ntx *nodeTx) putChunkPtr(offset int64, k [sha256.Size]byte) (err error) {
-	//1. create key using ntx.id and offset
-	//2. write content-based chunk key 'k' as value under db key
-	return ErrNotImplemented
+func (ntx *nodeTx) putChunkPtr(offset int64, k K) (err error) {
+	err = ntx.tx.Bucket(FileBucketName).Put(chunkPtrKey(ntx.id, offset), k[:])
+	if err != nil {
+		return fmt.Errorf("failed to put chunk ptr in %v: %v", ntx.id, err)
+	}
+
+	return nil
 }
 
 //getChildPtrs will scan the children of node (if any) and call 'fn' for each
