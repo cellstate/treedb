@@ -16,7 +16,7 @@ func TestCreateEmptyDirNode(t *testing.T) {
 	var n *node
 	var id uint64
 	if err := db.Update(func(tx *bolt.Tx) error {
-		_, err := tx.CreateBucketIfNotExists(FileBucketName)
+		_, err := tx.CreateBucketIfNotExists(NodeBucketName)
 		if err != nil {
 			return err
 		}
@@ -59,7 +59,7 @@ func TestCreateEmptyFileInDirNode(t *testing.T) {
 	var dN *node
 	var dID uint64
 	if err := db.Update(func(tx *bolt.Tx) error {
-		_, err := tx.CreateBucketIfNotExists(FileBucketName)
+		_, err := tx.CreateBucketIfNotExists(NodeBucketName)
 		if err != nil {
 			return err
 		}
@@ -128,6 +128,10 @@ func TestCreateEmptyFileInDirNode(t *testing.T) {
 		t.Errorf("node fi perm should be this, got: %s", fi.Mode().Perm())
 	}
 
+	if fi.Size() != 8 {
+		t.Errorf("expected directory size to be this")
+	}
+
 	if len(children) != 1 {
 		t.Error("expected one child node")
 	}
@@ -147,7 +151,7 @@ func TestDescendInDirNodes(t *testing.T) {
 
 	var root uint64
 	if err := db.Update(func(tx *bolt.Tx) error {
-		_, err := tx.CreateBucketIfNotExists(FileBucketName)
+		_, err := tx.CreateBucketIfNotExists(NodeBucketName)
 		if err != nil {
 			return err
 		}
@@ -239,7 +243,7 @@ func TestPutChunkPtrs(t *testing.T) {
 
 	var fid uint64
 	if err := db.Update(func(tx *bolt.Tx) error {
-		_, err := tx.CreateBucketIfNotExists(FileBucketName)
+		_, err := tx.CreateBucketIfNotExists(NodeBucketName)
 		if err != nil {
 			return err
 		}
@@ -259,7 +263,7 @@ func TestPutChunkPtrs(t *testing.T) {
 			return err
 		}
 
-		fid, _, err = fntx.putNode(os.ModeDir | 0777)
+		fid, _, err = fntx.putNode(0777)
 		if err != nil {
 			return err
 		}
@@ -270,18 +274,45 @@ func TestPutChunkPtrs(t *testing.T) {
 	}
 
 	chunks := map[int64]K{}
+	var n *node
 	if err := db.View(func(tx *bolt.Tx) error {
 		fntx, err := newNodeTx(tx, fid) //new node
 		if err != nil {
 			return err
 		}
 
-		return fntx.getChunkPtrs(func(offset int64, k K) error {
+		if err = fntx.getChunkPtrs(func(offset int64, k K) error {
 			chunks[offset] = k
 			return nil
-		})
+		}); err != nil {
+			return err
+		}
+
+		n, err = fntx.getNode()
+		if err != nil {
+			return err
+		}
+
+		return nil
 	}); err != nil {
 		t.Error(err)
+	}
+
+	fi := &fileInfo{node: n, name: "bar.txt"}
+	if fi.ModTime().IsZero() {
+		t.Error("node fi shouldnt have empty time")
+	}
+
+	if fi.IsDir() {
+		t.Error("node fi should not be directory")
+	}
+
+	if fi.Mode().Perm() != 0777 {
+		t.Errorf("node fi perm should be this, got: %s", fi.Mode().Perm())
+	}
+
+	if fi.Size() != 4*1024*1024 {
+		t.Errorf("expected directory size to be this")
 	}
 
 	if len(chunks) != 2 {

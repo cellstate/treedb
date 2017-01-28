@@ -12,6 +12,11 @@ import (
 )
 
 var (
+	//NodeBucketName is the name of the bucket that will hold all nodes
+	NodeBucketName = []byte("nodes")
+)
+
+var (
 	//ChunkPtrSeparator separates a node key from a chunk offset
 	ChunkPtrSeparator = []byte(":")
 
@@ -30,6 +35,7 @@ func btou64(b []byte) uint64 {
 	return binary.BigEndian.Uint64(b)
 }
 
+//format a database key for a node's child ptr
 func childPtrKey(id uint64, name string) (k []byte) {
 	k = u64tob(id)
 	k = append(k, ChildPtrSeparator...)
@@ -40,6 +46,7 @@ func childPtrKey(id uint64, name string) (k []byte) {
 	return k
 }
 
+//format a database key for a node's chunk ptr
 func chunkPtrKey(id uint64, offset int64) (k []byte) {
 	k = append(u64tob(id), ChunkPtrSeparator...)
 	if offset < 0 {
@@ -76,7 +83,7 @@ type nodeTx struct {
 //start a new node interaction. If id == 0, a new node id is generated. This effectively creates a new node.
 func newNodeTx(tx *bolt.Tx, id uint64) (ntx *nodeTx, err error) {
 	if id == 0 {
-		id, err = tx.Bucket(FileBucketName).NextSequence()
+		id, err = tx.Bucket(NodeBucketName).NextSequence()
 		if err != nil {
 			return nil, err
 		}
@@ -90,7 +97,7 @@ func (ntx *nodeTx) getDescendantID(p P) (id uint64) {
 	id = ntx.id
 	for _, comp := range p {
 		k := childPtrKey(id, comp)
-		v := ntx.tx.Bucket(FileBucketName).Get(k)
+		v := ntx.tx.Bucket(NodeBucketName).Get(k)
 		if v == nil {
 			return 0
 		}
@@ -103,7 +110,7 @@ func (ntx *nodeTx) getDescendantID(p P) (id uint64) {
 
 //getChunkPtrs will scan the children of node (if any) and call 'fn' for each
 func (ntx *nodeTx) getChunkPtrs(fn func(offset int64, k K) error) (err error) {
-	c := ntx.tx.Bucket(FileBucketName).Cursor()
+	c := ntx.tx.Bucket(NodeBucketName).Cursor()
 	prefix := chunkPtrKey(ntx.id, -1)
 	for k, v := c.Seek(prefix); k != nil && bytes.HasPrefix(k, prefix); k, v = c.Next() {
 		offsetb := bytes.TrimPrefix(k, prefix)
@@ -122,7 +129,7 @@ func (ntx *nodeTx) getChunkPtrs(fn func(offset int64, k K) error) (err error) {
 
 //putChunkPtr writes a prefixed key that points to a content-based chunk key
 func (ntx *nodeTx) putChunkPtr(offset int64, k K) (err error) {
-	err = ntx.tx.Bucket(FileBucketName).Put(chunkPtrKey(ntx.id, offset), k[:])
+	err = ntx.tx.Bucket(NodeBucketName).Put(chunkPtrKey(ntx.id, offset), k[:])
 	if err != nil {
 		return fmt.Errorf("failed to put chunk ptr in %v: %v", ntx.id, err)
 	}
@@ -132,7 +139,7 @@ func (ntx *nodeTx) putChunkPtr(offset int64, k K) (err error) {
 
 //getChildPtrs will scan the children of node (if any) and call 'fn' for each
 func (ntx *nodeTx) getChildPtrs(fn func(name string, id uint64) error) (err error) {
-	c := ntx.tx.Bucket(FileBucketName).Cursor()
+	c := ntx.tx.Bucket(NodeBucketName).Cursor()
 	prefix := childPtrKey(ntx.id, "")
 	for k, v := c.Seek(prefix); k != nil && bytes.HasPrefix(k, prefix); k, v = c.Next() {
 		name := bytes.TrimPrefix(k, prefix)
@@ -147,7 +154,7 @@ func (ntx *nodeTx) getChildPtrs(fn func(name string, id uint64) error) (err erro
 
 //putChildPtr writes a prefixed key that points to another node
 func (ntx *nodeTx) putChildPtr(name string, id uint64) (err error) {
-	err = ntx.tx.Bucket(FileBucketName).Put(childPtrKey(ntx.id, name), u64tob(id))
+	err = ntx.tx.Bucket(NodeBucketName).Put(childPtrKey(ntx.id, name), u64tob(id))
 	if err != nil {
 		return fmt.Errorf("failed to put child ptr in %v: %v", ntx.id, err)
 	}
@@ -158,9 +165,30 @@ func (ntx *nodeTx) putChildPtr(name string, id uint64) (err error) {
 //putInfo completes, serializes and (over)writes the actual node key in the db
 func (ntx *nodeTx) putNode(mode os.FileMode) (id uint64, n *node, err error) {
 	n = &node{
-		Size:    0,          //@TODO cursor over node ptrs to refresh this
-		Mode:    mode,       //@TODO infer from presensense of childPtr/chunkPtr?
+		Size:    0,
+		Mode:    mode,
 		ModTime: time.Now(), //@TODO only update if things changed (add checksum)?
+	}
+
+	//based on whether the node represents a directory of a file we scan over the chunks or children to update the node struct with up-to-date self information
+	if n.Mode.IsDir() {
+		if err = ntx.getChildPtrs(func(name string, id uint64) error {
+			n.Size = n.Size + 8 //8bytes for each uint64 id
+			return nil
+		}); err != nil {
+			return 0, nil, err
+		}
+
+	} else {
+		if err = ntx.getChunkPtrs(func(offset int64, k K) error {
+			if k == ZeroKey {
+				n.Size = offset
+			}
+
+			return nil
+		}); err != nil {
+			return 0, nil, err
+		}
 	}
 
 	d, err := json.Marshal(n)
@@ -168,7 +196,7 @@ func (ntx *nodeTx) putNode(mode os.FileMode) (id uint64, n *node, err error) {
 		return 0, nil, ErrSerialize
 	}
 
-	err = ntx.tx.Bucket(FileBucketName).Put(u64tob(ntx.id), d)
+	err = ntx.tx.Bucket(NodeBucketName).Put(u64tob(ntx.id), d)
 	if err != nil {
 		return 0, nil, fmt.Errorf("failed to put node %v: %v", ntx.id, err)
 	}
@@ -178,7 +206,7 @@ func (ntx *nodeTx) putNode(mode os.FileMode) (id uint64, n *node, err error) {
 
 //getNode deserializes the node information and returns it
 func (ntx *nodeTx) getNode() (n *node, err error) {
-	v := ntx.tx.Bucket(FileBucketName).Get(u64tob(ntx.id))
+	v := ntx.tx.Bucket(NodeBucketName).Get(u64tob(ntx.id))
 	if v == nil {
 		return nil, nil
 	}
