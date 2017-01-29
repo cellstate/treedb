@@ -3,7 +3,13 @@ package simplefs
 import (
 	"fmt"
 	"io"
+
+	"github.com/restic/chunker"
 )
+
+type flushReq struct {
+	resp chan error
+}
 
 type chunk struct {
 	o   uint64 //absolute offset in the file that is chunked
@@ -19,14 +25,105 @@ func (c chunk) data() ([]byte, error) {
 	return c.d, nil
 }
 
-//A ChunkBuf provides a malleable in-memory map of chunks
+//A ChunkBuf provides a malleable in-memory slice of chunks
 type ChunkBuf struct {
-	pos    uint64
-	chunks []*chunk
+	pw  io.WriteCloser
+	pol chunker.Pol
+
+	flushCh chan chan error
+	chunks  []*chunk
 }
 
-//InjectChunk takes new chunks produced by the Chunker and positions them correctly in-line without losing bytes, it uses the new chunk's left position (offset) and right
-func (buf *ChunkBuf) InjectChunk(offset uint64, data []byte) error {
+//NewChunkBuf creates a chunked file interface
+func NewChunkBuf() (*ChunkBuf, error) {
+	buf := &ChunkBuf{
+		pol:     chunker.Pol(0x3DA3358B4DC173),
+		flushCh: make(chan chan error),
+		chunks:  []*chunk{{o: 0, eof: true}},
+	}
+
+	//chunking injects new chunks into the chunk slice as they are produced
+	chunking := func(chkr *chunker.Chunker, doneCh chan<- error) {
+		b := make([]byte, chkr.MaxSize)
+		var doneErr error
+		for {
+			chunk, err := chkr.Next(b)
+			if err == io.EOF {
+				break
+			}
+
+			d := make([]byte, chunk.Length)
+			copy(d, chunk.Data)
+
+			err = buf.inject(uint64(chunk.Start), d)
+			if err != nil {
+				doneErr = err
+				break
+			}
+		}
+
+		//signal all chunks have been injected
+		doneCh <- doneErr
+	}
+
+	//routine for handling flush requests.
+	go func() {
+		doneCh := make(chan error)
+		for freq := range buf.flushCh {
+
+			//flush the last chunker
+			if buf.pw != nil {
+				err := buf.pw.Close()
+				if err != nil {
+					freq <- err //failed to flush
+					continue
+				}
+
+				err = <-doneCh
+				if err != nil {
+					freq <- err //failed to flush
+					continue
+				}
+			}
+
+			//setup a new chunking pipe
+			var pr io.Reader
+			pr, buf.pw = io.Pipe()
+			chunker := chunker.NewWithBoundaries(
+				pr, buf.pol, (256 * kiB), (1 * miB),
+			)
+
+			//start chunking, we'll send something on doneCh when done
+			go chunking(chunker, doneCh)
+
+			//respond to flush, all OK
+			freq <- nil
+		}
+	}()
+
+	//initial flush to set stuff up
+	err := buf.flush()
+	if err != nil {
+		return nil, fmt.Errorf("failed to setup: %v", err)
+	}
+
+	return buf, nil
+}
+
+//flush will close the chunk writer. This will cause the chunker to turn any remaining (buffered) bytes into a last chunk before starting a new one.
+func (buf *ChunkBuf) flush() error {
+	freq := make(chan error)
+	buf.flushCh <- freq
+	err := <-freq
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+//inject takes new chunks produced by the Chunker and positions them correctly in-line without losing bytes, it uses the new chunk's left position (offset) and right
+func (buf *ChunkBuf) inject(offset uint64, data []byte) error {
 	var injected bool
 
 	//here we walk over existing chunks and filter what is being transferred to a new chunk slice that uses the same unerlying array to prevent allocations
@@ -40,7 +137,7 @@ func (buf *ChunkBuf) InjectChunk(offset uint64, data []byte) error {
 			if injected == false {
 				nchunks = append(nchunks, &chunk{o: offset, d: data})
 				injected = true
-				eofC.o = end
+				eofC.o = end //shift EOF chunk
 			}
 
 			nchunks = append(nchunks, eofC) //add EOF chunk
@@ -112,7 +209,7 @@ func (buf *ChunkBuf) Seek(pos uint64) error {
 	return ErrNotImplemented
 }
 
-//Write will push bytes into the chunker
-func (buf *ChunkBuf) Write(b []byte) error {
-	return nil
+//Write will push bytes into the chunker, the chunker may buffer bytes util it has reached it maxed size, this buffer if flushed or the writer is closed.
+func (buf *ChunkBuf) Write(b []byte) (int, error) {
+	return buf.pw.Write(b)
 }

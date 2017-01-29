@@ -2,6 +2,7 @@ package simplefs
 
 import (
 	"bytes"
+	"crypto/rand"
 	"testing"
 )
 
@@ -18,7 +19,7 @@ func TestInjectChunkMiddle(t *testing.T) {
 		&chunk{10, nil, true}, //EOF
 	}}
 
-	err := cbuf.InjectChunk(3, []byte{0x03, 0x04, 0x05, 0x06})
+	err := cbuf.inject(3, []byte{0x03, 0x04, 0x05, 0x06})
 	if err != nil {
 		t.Error(err)
 	}
@@ -56,7 +57,7 @@ func TestInjectChunkEnd(t *testing.T) {
 		&chunk{6, nil, true}, //EOF
 	}}
 
-	err := cbuf.InjectChunk(5, []byte{0x05, 0x06, 0x07, 0x08})
+	err := cbuf.inject(5, []byte{0x05, 0x06, 0x07, 0x08})
 	if err != nil {
 		t.Error(err)
 	}
@@ -94,7 +95,7 @@ func TestInjectChunkMiddleEnd(t *testing.T) {
 		&chunk{6, nil, true}, //EOF
 	}}
 
-	err := cbuf.InjectChunk(3, []byte{0x03, 0x04, 0x05, 0x06})
+	err := cbuf.inject(3, []byte{0x03, 0x04, 0x05, 0x06})
 	if err != nil {
 		t.Error(err)
 	}
@@ -132,7 +133,7 @@ func TestInjectChunkMiddleStart(t *testing.T) {
 		&chunk{6, nil, true}, //EOF
 	}}
 
-	err := cbuf.InjectChunk(0, []byte{0x00, 0x01, 0x02, 0x03, 0x04})
+	err := cbuf.inject(0, []byte{0x00, 0x01, 0x02, 0x03, 0x04})
 	if err != nil {
 		t.Error(err)
 	}
@@ -170,7 +171,7 @@ func TestInjectChunkPreciseTwoBlockOverwrite(t *testing.T) {
 		&chunk{6, nil, true}, //EOF
 	}}
 
-	err := cbuf.InjectChunk(0, []byte{0x00, 0x01, 0x02, 0x03})
+	err := cbuf.inject(0, []byte{0x00, 0x01, 0x02, 0x03})
 	if err != nil {
 		t.Error(err)
 	}
@@ -208,14 +209,9 @@ func TestInjectChunkPreciseOneBlockOverwrite(t *testing.T) {
 		&chunk{6, nil, true}, //EOF
 	}}
 
-	err := cbuf.InjectChunk(2, []byte{0x88, 0x88})
+	err := cbuf.inject(2, []byte{0x88, 0x88})
 	if err != nil {
 		t.Error(err)
-	}
-
-	result := []byte{}
-	for _, c := range cbuf.chunks {
-		result = append(result, c.d...)
 	}
 
 	if len(cbuf.chunks) != 4 {
@@ -230,8 +226,90 @@ func TestInjectChunkPreciseOneBlockOverwrite(t *testing.T) {
 		t.Fatal("expected end offset to be this value")
 	}
 
+	result := []byte{}
+	for _, c := range cbuf.chunks {
+		result = append(result, c.d...)
+	}
+
 	if !bytes.Equal(result, []byte{0x00, 0x01, 0x88, 0x88, 0x04, 0x05}) {
 		t.Errorf("expected stitching to not corrupt data, result: %v", result)
 	}
+}
 
+// before: [0 EOF]
+// inject: [0 -- -- ]
+// after:  [0 -- -- ][2 EOF]
+func TestInjectChunkEmpty(t *testing.T) {
+	cbuf := &ChunkBuf{chunks: []*chunk{
+		&chunk{0, nil, true}, //EOF
+	}}
+
+	err := cbuf.inject(0, []byte{0x00, 0x01})
+	if err != nil {
+		t.Error(err)
+	}
+
+	result := []byte{}
+	for _, c := range cbuf.chunks {
+		result = append(result, c.d...)
+	}
+
+	if len(cbuf.chunks) != 2 {
+		t.Fatalf("expected this many chunks, got: %+v", cbuf.chunks)
+	}
+
+	if !cbuf.chunks[len(cbuf.chunks)-1].eof {
+		t.Fatal("expected chunk EOF at the end")
+	}
+
+	if cbuf.chunks[1].o != 2 {
+		t.Fatal("expected end offset to be this value")
+	}
+
+	if !bytes.Equal(result, []byte{0x00, 0x01}) {
+		t.Errorf("expected stitching to not corrupt data, result: %v", result)
+	}
+}
+
+func TestWriteFlushPasMaxSize(t *testing.T) {
+	cbuf, err := NewChunkBuf()
+	if err != nil {
+		t.Fatalf("didn't expect error, got: %v", err)
+	}
+
+	input := make([]byte, 2*miB)
+	rand.Read(input)
+
+	n, err := cbuf.Write(input) //write to chunker
+	if err != nil {
+		t.Fatalf("didn't expect error, got: %v", err)
+	}
+
+	if len(cbuf.chunks) < 2 {
+		t.Fatal("expected at least two chunks at this point")
+	}
+
+	err = cbuf.flush() //flush remaining from chunker
+	if err != nil {
+		t.Fatalf("didn't expect error, got: %v", err)
+	}
+
+	if n != len(input) {
+		t.Fatalf("expected this many bytes to have been written, got: %v", n)
+	}
+
+	output := []byte{}
+	totalN := 0
+	for _, c := range cbuf.chunks {
+		totalN = totalN + len(c.d)
+		output = append(output, c.d...)
+	}
+
+	if len(input) != totalN {
+		t.Fatal("expected nr of output bytes to equal input bytes")
+	}
+
+	if !bytes.Equal(input, output) {
+		t.Fatalf("expected output to be equal to input")
+	}
 }
