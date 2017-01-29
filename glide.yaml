@@ -4,7 +4,5 @@ ignore:
 import:
   - package: github.com/boltdb/bolt
     version: a705895fdad108f053eae7ee011ed94a0541ee13
-  - package: github.com/keybase/go-codec
-    version: cc2681ec6f901149e58af9d40a90da1aa370aadb
-  - package: github.com/keybase/go-merkle-tree
-    version: a2a53a828cf58801efa8285c651b0941b5abae8c
+  - package: github.com/restic/chunker
+    version: 15748add008169ebbec6800155db55c8568700f6

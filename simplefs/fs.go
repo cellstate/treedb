@@ -247,7 +247,7 @@ func (fs *FileSystem) openFile(tx *bolt.Tx, p P, flag int, perm os.FileMode) (f 
 		return nil, os.ErrNotExist
 	}
 
-	return f, nil
+	return NewFile(fs, fi.nodeID), nil
 }
 
 // OpenFile is the generalized open call. It opens the named file with specified flag (O_RDONLY etc.) and perm, (0666 etc.) if applicable. If successful, methods on the returned File can be used for I/O. If there is an error, it will be of type *PathError. Behaviour can be customized with the following flags:

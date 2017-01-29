@@ -1,10 +1,8 @@
-hash: 03c7b2f3697f17c551a8a89af0c946e2a0c7a2ba2eef0a16e379ec31993e6386
-updated: 2017-01-21T14:54:43.930207731+01:00
+hash: d8a50650955d725655b812e709c203e9c18aab2355129b03f8e8304e88c4aa21
+updated: 2017-01-28T19:46:13.304019897+01:00
 imports:
 - name: github.com/boltdb/bolt
   version: a705895fdad108f053eae7ee011ed94a0541ee13
-- name: github.com/keybase/go-codec
-  version: cc2681ec6f901149e58af9d40a90da1aa370aadb
-- name: github.com/keybase/go-merkle-tree
-  version: a2a53a828cf58801efa8285c651b0941b5abae8c
+- name: github.com/restic/chunker
+  version: 15748add008169ebbec6800155db55c8568700f6
 testImports: []
