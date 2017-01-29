@@ -7,10 +7,6 @@ import (
 	"github.com/restic/chunker"
 )
 
-type flushReq struct {
-	resp chan error
-}
-
 type chunk struct {
 	o   uint64 //absolute offset in the file that is chunked
 	d   []byte //this might or might not have been flushed to the db
@@ -27,6 +23,7 @@ func (c chunk) data() ([]byte, error) {
 
 //A ChunkBuf provides a malleable in-memory slice of chunks
 type ChunkBuf struct {
+	pos uint64
 	pw  io.WriteCloser
 	pol chunker.Pol
 
@@ -43,7 +40,7 @@ func NewChunkBuf() (*ChunkBuf, error) {
 	}
 
 	//chunking injects new chunks into the chunk slice as they are produced
-	chunking := func(chkr *chunker.Chunker, doneCh chan<- error) {
+	chunking := func(off uint64, chkr *chunker.Chunker, doneCh chan<- error) {
 		b := make([]byte, chkr.MaxSize)
 		var doneErr error
 		for {
@@ -55,7 +52,8 @@ func NewChunkBuf() (*ChunkBuf, error) {
 			d := make([]byte, chunk.Length)
 			copy(d, chunk.Data)
 
-			err = buf.inject(uint64(chunk.Start), d)
+			fmt.Println("inject:", chunk.Start, len(d))
+			err = buf.inject(off+uint64(chunk.Start), d)
 			if err != nil {
 				doneErr = err
 				break
@@ -93,8 +91,8 @@ func NewChunkBuf() (*ChunkBuf, error) {
 				pr, buf.pol, (256 * kiB), (1 * miB),
 			)
 
-			//start chunking, we'll send something on doneCh when done
-			go chunking(chunker, doneCh)
+			//from current file position start chunking, we'll send something on doneCh when done
+			go chunking(buf.pos, chunker, doneCh)
 
 			//respond to flush, all OK
 			freq <- nil
@@ -110,7 +108,7 @@ func NewChunkBuf() (*ChunkBuf, error) {
 	return buf, nil
 }
 
-//flush will close the chunk writer. This will cause the chunker to turn any remaining (buffered) bytes into a last chunk before starting a new one.
+//flush will close the chunk writer. This will cause the chunker to turn any remaining (buffered) bytes into a last chunk before starting a new one. A new chunker is started at the current cursor position
 func (buf *ChunkBuf) flush() error {
 	freq := make(chan error)
 	buf.flushCh <- freq
@@ -201,7 +199,7 @@ func (buf *ChunkBuf) inject(offset uint64, data []byte) error {
 	return nil
 }
 
-//Seek will moves the current position to absolute position 'pos', in doing so it flushes currently buffered data from the chunker into a new chunk by closing the underlying writer. A new writer is started and the chunker is reset. If the new position is halfway a old chunk, the part of the chunk in front of this position is immediately written to the chunker.
+//Seek will moves the current position to absolute position 'pos', in doing so it flushes currently buffered data from the chunker into a new chunk by closing the underlying writer. A new writer is started and the chunker is reset.
 func (buf *ChunkBuf) Seek(pos uint64) error {
 
 	//@TODO dont reset if chunker is already positioned correctly
@@ -209,7 +207,9 @@ func (buf *ChunkBuf) Seek(pos uint64) error {
 	return ErrNotImplemented
 }
 
-//Write will push bytes into the chunker, the chunker may buffer bytes util it has reached it maxed size, this buffer if flushed or the writer is closed.
-func (buf *ChunkBuf) Write(b []byte) (int, error) {
-	return buf.pw.Write(b)
+//Write will push bytes into the chunker, the chunker may buffer bytes util it has reached it maxed size, this buffer if flushed or the writer is closed. Writing takes place at the current file offset, and the file offset is incremented by the number of bytes actually written.
+func (buf *ChunkBuf) Write(b []byte) (n int, err error) {
+	n, err = buf.pw.Write(b)
+	buf.pos += uint64(n)
+	return n, err
 }

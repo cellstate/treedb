@@ -3,6 +3,7 @@ package simplefs
 import (
 	"bytes"
 	"crypto/rand"
+	"fmt"
 	"testing"
 )
 
@@ -310,6 +311,70 @@ func TestWriteFlushPasMaxSize(t *testing.T) {
 	}
 
 	if !bytes.Equal(input, output) {
+		t.Fatalf("expected output to be equal to input")
+	}
+}
+
+func TestWriteAfterFlush(t *testing.T) {
+	fmt.Println("write after flush!")
+	cbuf, err := NewChunkBuf()
+	if err != nil {
+		t.Fatalf("didn't expect error, got: %v", err)
+	}
+
+	input1 := make([]byte, 256*kiB)
+	rand.Read(input1)
+	input2 := make([]byte, 128*kiB)
+	rand.Read(input2)
+	input3 := make([]byte, 128*kiB)
+	rand.Read(input3)
+
+	n, err := cbuf.Write(input1)
+	if err != nil || n != len(input1) {
+		t.Fatalf("failed to write: %v", err)
+	}
+
+	n, err = cbuf.Write(input2)
+	if err != nil || n != len(input2) {
+		t.Fatalf("failed to write: %v", err)
+	}
+
+	err = cbuf.flush()
+	if err != nil {
+		t.Fatalf("failed to flush: %v", err)
+	}
+
+	n, err = cbuf.Write(input3)
+	if err != nil || n != len(input3) {
+		t.Fatalf("failed to write: %v", err)
+	}
+
+	err = cbuf.flush()
+	if err != nil {
+		t.Fatalf("failed to flush: %v", err)
+	}
+
+	output := []byte{}
+	totalN := 0
+	for _, c := range cbuf.chunks {
+		fmt.Println(c.o, c.eof)
+		totalN = totalN + len(c.d)
+		output = append(output, c.d...)
+	}
+
+	if 512*kiB != uint64(totalN) {
+		t.Fatalf("expected nr of output bytes to equal input bytes, total: %d Kib", (totalN / kiB))
+	}
+
+	if !bytes.Equal(input1, output[:(256*kiB)]) {
+		t.Fatalf("expected output to be equal to input")
+	}
+
+	if !bytes.Equal(input2, output[(256*kiB):(384*kiB)]) {
+		t.Fatalf("expected output to be equal to input")
+	}
+
+	if !bytes.Equal(input3, output[(384*kiB):(512*kiB)]) {
 		t.Fatalf("expected output to be equal to input")
 	}
 }
